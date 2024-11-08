@@ -1,7 +1,7 @@
 
 # Newslookout
 
-[![build](https://github.com/sandeep-sandhu/newslookout_rs/actions/workflows/rust.yml/badge.svg)](https://github.com/sandeep-sandhu/newslookout_rs/actions)
+[![build](https://github.com/sandeep-sandhu/newslookout_rs/actions/workflows/rust.yml/badge.svg)](https://github.com/sandeep-sandhu/newslookout_rs/actions) ![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/newslookout)
 
 
 A web scraping platform built for news scanning, powered by Rust. Port of the application of the same name built in python.

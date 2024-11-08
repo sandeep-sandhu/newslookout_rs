@@ -15,9 +15,6 @@ license-file = "LICENSE"
 name = "newslookout"
 path = "src/lib.rs"
 
-[[bin]]
-name = "newslookout_app"
-path = "src/bin.rs"
 
 [dependencies]
 log4rs = { version = "1.3.0", features = ["gzip"]}

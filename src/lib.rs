@@ -12,7 +12,7 @@
 //! use std::env;
 //! use newslookout::run_app;
 //!
-//! # fn main() {
+//! fn main() {
 //!     if env::args().len() < 2 {
 //!         println!("Usage: newslookout_app <config_file>");
 //!         panic!("Provide config file as parameter in the command line, (need 2 parameters, got {})",
@@ -23,7 +23,7 @@
 //!     let configfile = env::args().nth(1).unwrap();
 //!
 //!     run_app(configfile);
-//! # }
+//! }
 //! ```
 //! Refer to the README file for more information.
 

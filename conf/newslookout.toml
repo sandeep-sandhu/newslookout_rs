@@ -1,0 +1,172 @@
+# This is the configuration file for the NewsLookout web scraping application.
+#
+# It is organised into 4 sections: installation, operation, logging and plugins.
+#
+##################################################################################################
+#                                                                                                #
+# Notice:                                                                                        #
+# This software is intended for demonstration and educational purposes only. This software is    #
+# experimental and a work in progress. Under no circumstances should these files be used in      #
+# relation to any critical system(s). Use of these files is at your own risk.                    #
+#                                                                                                #
+# Before using it for web scraping any website, always consult that website's terms of use.      #
+# Do not use this software to fetch any data from any website that has forbidden use of web      #
+# scraping or similar mechanisms, or violates its terms of use in any other way. The author is   #
+# not liable for such kind of inappropriate use of this software.                                #
+#                                                                                                #
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,            #
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR       #
+# PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE      #
+# FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR           #
+# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER         #
+# DEALINGS IN THE SOFTWARE.                                                                      #
+#                                                                                                #
+##################################################################################################
+
+
+# this section lists the file and directory locations
+
+# The configuration directory is specified relative to the prefix director
+# However, an absolute path could also be given:
+conf_dir ="/opt/newslookout/conf"
+
+# The data_dir specifies the name of the data directory where the data files will be saved:
+data_dir =  "C:\\shared\\datasets\\newslookout_rs_data"
+
+# the master data files will be stored in this folder
+master_data_dir = "/var/newslookout/master_data"
+
+models_dir =  "/opt/newslookout/models"
+
+# location of the log file, here it is specified relative to the data directory:
+log_file = "logs/newslookout.log"
+
+# If a PID (process identifier) file exists, the application will not launch.
+# This is to prevent multiple instances being launched on the same machine.
+# As part of the shutdown sequence, the PID file will be automatically deleted.
+pid_file = "logs/newslookout.pid"
+
+# the sqlite data file that stores the history of previously retrieved URLs
+completed_urls_datafile = "C:\\shared\\datasets\\newslookout_urls.db"
+
+cookie_file="/var/newslookout/cookies.txt"
+
+# levels of recursion to follow links for identifying news articles within websites
+# min value is 1, max is 4, any other values do not have any effect
+recursion_level=1
+
+# Set this to True to enable the REST API for reporting status of the application:
+rest_api_enabled = true
+# hostname to listen for the status reporting service
+rest_api_host = "0.0.0.0"
+# port number to listen for the status reporting service
+rest_api_port = 8080
+# the SSL certificate to be used for the REST API
+rest_api_ssl_key = 'rest_svc.cer'
+rest_api_ssl_cert = 'rest_svc.key'
+
+# time in seconds to wait before refreshing the progress bar:
+progressbar_refresh_interval=5
+
+# time in seconds to wait for when retrieving a page:
+fetch_timeout = 60
+
+# time to wait to establish TCP connection:
+connect_timeout = 10
+
+# number of times to retry connecting if failed
+retry_count = 3
+
+# the fixed number of seconds to wait between web fetches, this
+# fixed time is added to the random time to determine the total wait time
+# between two web fetches to the same URL 
+retry_wait_fixed_sec = 3
+
+# minimum number of seconds to wait when calculating the random wait time
+retry_wait_rand_min_sec = 2
+
+# maximum number of seconds to wait when calculating the random wait time
+retry_wait_rand_max_sec = 5
+
+# should raw html be saved as compressed bzipped files?
+save_html=true
+#save_html=false
+
+
+# proxy configuration paramters, for example:
+# proxy_url_http=127.0.0.1:8080
+# proxy_url_https=127.0.0.1:8080
+proxy_url_http=""
+proxy_url_https=""
+
+# user authentication to the proxy, username and password are decoded before converting to plain text:
+proxy_user=""
+proxy_password=""
+
+# proxy certificate path for the organisation's proxy server, this is to be trusted
+# If proxy_ca_certfile parameter is set to a directory, it must have been processed using the c_rehash utility supplied with OpenSSL.
+proxy_ca_certfile=""
+
+# WARNING: set parameter verify_ca_cert to False only if a cert cannot be verified since it may be internal to an organisation.
+# if it is set to False, requests will accept any TLS certificate presented by the server, and will ignore hostname mismatches and/or expired certificates, which will make the application vulnerable to man-in-the-middle (MitM) attacks.
+verify_ca_cert=true
+
+# the user agents to use for the web scraper's HTTP(S) requests:
+# use pipe delimiter to specify multiple different user agents
+# these will be rotated in round robin manner with each subsequent request.
+user_agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)|Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14"
+
+
+# log levels can be one of the following
+# (starting from less verbosity to full verbosity): ERROR, WARN, INFO, or DEBUG
+# log_level=ERROR
+# log_level=WARN
+log_level="INFO"
+# log_level=DEBUG
+
+# max file size of the log file, when the log file grows
+# beyond this size limit, it will be rotated:
+max_logfile_size=2048000
+
+# this many backups of the log file will be retained
+logfile_backup_count=30
+
+# In this section, list the names of all modules to be enabled:
+# the number assigned to the priority attribute indicates execution priority,
+# A lower number indicates higher priority, so it will be run before others are run
+plugins = [
+{"enabled"=false, "name"="mod_in_gdelt", "type"="retriever", "priority"=1}
+ , {"enabled"=false, "name"="mod_in_nse", "type"="retriever", "priority"=2}
+ , {"enabled"=false, "name"="mod_in_bse", "type"="retriever", "priority"=2}
+ , {"enabled"=false, "name"="mod_en_in_inexp_business", "type"="retriever", "priority"=3}
+ , {"enabled"=false, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_business_std", "type"="retriever", "priority"=3}
+ , {"enabled"=false, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
+ , {"enabled"=false, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
+ , {"enabled"=false, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
+ , {"enabled"=false, "name"="mod_en_in_hindu", "type"="retriever", "priority"=3}
+ , {"enabled"=false, "name"="mod_en_in_indiankanoon", "type"="retriever", "priority"=5}
+ , {"enabled"=false, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
+ , {"enabled"=false, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
+ , {"enabled"=false, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "maxpages"=3, "items_per_page"=3}
+ , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3}
+ # the following plugins will run in order of priority:
+ # A lower number indicates higher priority, so it will be run before others are run
+ , {"enabled"=true, "name"="mod_dataprep", "type"="data_processor", "priority"=1}
+ # it is recommended to keep these plugins disabled, they will slow down the entire application
+ # since the models are very large and computationally intensive
+ # enable them if you are running the application on very capable hardware > 16GB RAM and 8 CPU:
+ , {"enabled"=false, "name"="mod_dedupe", "type"="data_processor", "priority"=2, "spacymodel"="en_core_web_lg"}
+ # For the news event tone classification model - finBERT:
+ # Download the models from:
+ # https://gohkust-my.sharepoint.com/:f:/g/personal/imyiyang_ust_hk/EksJcamJpclJlbMweFfB5DQB1XrsxURYN5GSqZw3jmSeSw?e=KAyhsX
+ # obtain the vocabulary file from:
+ # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
+ # save the model file and the config.json file to the folders specified here:
+ , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=3, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
+ , {"enabled"=true, "name"="mod_ollama", "type"="data_processor", "priority"=4, "host_port"="http://127.0.0.1:11434/", "model_name"="llama3_1_8b"}
+ , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=5, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+]
+
+## end of file ##

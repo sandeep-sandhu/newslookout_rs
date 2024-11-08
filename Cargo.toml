@@ -36,10 +36,10 @@ lopdf = { version = "0.34.0", features = ["pom", "pom_parser", "nom_parser"]}
 config = "0.14.1"
 chrono = "0.4.38"
 bytes = "1.8.0"
-clap = { version = "4.5.20", features = ["derive"] }
 sqlx = { version = "0.8.2", features = [ "runtime-tokio-rustls", "postgres", "macros", "runtime-tokio-native-tls", "sqlite" ] }
+nom = "8.0.0-alpha2"
+#clap = { version = "4.5.20", features = ["derive"] }
 #webpki-roots = "0.26.6"
-#nom = "8.0.0-alpha2"
 #strsim = "0.11.1"
 #env_logger = "0.11.5"
 #postgres = "0.19.9"

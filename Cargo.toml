@@ -5,16 +5,15 @@ edition = "2021"
 authors = ["Sandeep Singh Sandhu"]
 description = "A web scraping platform built for news scanning, powered by Rust"
 repository = "https://github.com/sandeep-sandhu/newslookout_rs"
+homepage = "https://github.com/sandeep-sandhu/sandeep-sandhu"
 keywords = ["analytics", "data_transformations", "machine_learning", "Model_deployment", "Data_Science"]
+categories = ["command-line-utilities", "command-line-interface", "finance", "text-processing"]
 readme = "README.md"
 license-file = "LICENSE"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-# cargo layout for multiple binaries in same project:
 [lib]
 name = "newslookout"
 path = "src/lib.rs"
-
 
 [dependencies]
 log4rs = { version = "1.3.0", features = ["gzip"]}

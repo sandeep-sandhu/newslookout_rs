@@ -174,7 +174,7 @@ fn get_url_listing(
 ///
 /// # Examples
 ///
-/// ```
+///
 /// let new_docs = get_docs_from_listing_page(
 ///                 "https://www.website.com/section1/index.html",
 ///                 "section1",
@@ -184,7 +184,7 @@ fn get_url_listing(
 ///                 10,
 ///                 "/var/cache/newslookout"
 ///             );
-/// ```
+///
 fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, already_retrieved_urls: &mut HashSet<String>, client: &reqwest::blocking::Client, retry_times:u64, wait_time:u64, data_folder: &str) -> Vec<document::Document>{
 
     let mut new_docs: Vec<document::Document> = Vec::new();

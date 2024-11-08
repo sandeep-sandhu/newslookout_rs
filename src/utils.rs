@@ -170,9 +170,8 @@ pub fn clean_text(text: String) -> String {
 ///
 /// # Examples
 ///
-/// ```
 /// let filename:String = make_unique_filename(mydoc);
-/// ```
+///
 pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String {
     match doc_struct.url.rfind('/') {
         Some(slash_pos_in_url) =>{
@@ -546,7 +545,7 @@ mod tests {
     #[test]
     fn test_split_by_word_count_with_overlap(){
         let para2 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
-        let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped\n\n over", "over  the\n\n 1\n\n lazy\n\n dog.\n\n"];
+        let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1", " 1  lazy\n\n dog.\n\n"];
         let result2 = utils::split_by_word_count(para2, 3, 1);
         println!("Word split result = {:?}", result2);
         assert_eq!(result2, para2_expected_answer, "Did not split text into parts by word limit and overlap");

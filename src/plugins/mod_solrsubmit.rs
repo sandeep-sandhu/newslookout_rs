@@ -1,21 +1,47 @@
 // file: mod_solrsubmit.rs
 
-use log::info;
+use std::sync::mpsc::{Receiver, Sender};
+use config::Config;
+use log::{error, info};
 use crate::{document, network};
-use crate::document::Document;
 use crate::utils::{clean_text, get_text_from_element, to_local_datetime};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_solrsubmit";
 const PUBLISHER_NAME: &str = "Index via SOLR Service";
 
-pub(crate) fn process_data(doc: &document::Document, config: &config::Config){
-    info!("Starting processing data using plugin: {}", PLUGIN_NAME);
+/// Process documents received on channel rx and,
+/// transmit the updated documents to tx.
+///
+/// # Arguments
+///
+/// * `tx`: Queue transmitter for the next thread
+/// * `rx`: Queue receiver for this thread
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+///
+pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, config: &Config){
 
-    // Print the configuration options:
-    info!("models_dir = {:?}", config.get_string("models_dir"));
+    info!("{}: Getting configuration.", PLUGIN_NAME);
 
-    info!("Processed document: {}", doc.title);
+    for doc in rx {
+        info!("Saving processed document titled - {}", doc.title);
+        let updated_doc:document::Document = update_doc(doc);
+        match tx.send(updated_doc) {
+            Result::Ok(_) => {},
+            Err(e) => error!("{}: When sending processed doc via tx: {}", PLUGIN_NAME, e)
+        }
+    }
 
+    info!("{}: Completed processing.", PLUGIN_NAME);
+}
+
+fn update_doc(raw_doc: document::Document) -> document::Document{
+    info!("{}: updating document titled - '{}'", PLUGIN_NAME, raw_doc.title);
+
+    // TODO: implement this
+
+    return raw_doc;
 }
 
 #[cfg(test)]

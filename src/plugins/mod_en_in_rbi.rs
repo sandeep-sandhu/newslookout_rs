@@ -21,10 +21,11 @@ use {
 use crate::{document, network};
 use crate::document::{Document, TextPart};
 use crate::network::make_http_client;
-use crate::utils::{extract_text_from_html, split_by_word_count, clean_text, get_data_folder, get_network_params, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime};
+use crate::utils::{extract_text_from_html, split_by_word_count, clean_text, get_data_folder, get_network_params, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_en_in_rbi";
 const PUBLISHER_NAME: &str = "Reserve Bank of India";
+const BASE_URL: &str = "https://website.rbi.org.in/";
 const STARTER_URLS: [(&str,&str); 6] = [
     ("https://website.rbi.org.in/web/rbi/notifications/rbi-circulars", "Circular"),
     ("https://website.rbi.org.in/web/rbi/press-releases", "Press Release"),
@@ -38,8 +39,10 @@ const STARTER_URLS: [(&str,&str); 6] = [
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
-
     let (fetch_timeout_seconds, retry_times, wait_time, user_agent) = get_network_params(&app_config);
+    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string());
+    let database_filename = get_database_filename(&app_config);
+
     let mut maxitemsinpage = 1;
     let mut maxpages = 1;
     match get_plugin_config(&app_config, PLUGIN_NAME, "maxpages"){
@@ -58,17 +61,12 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
     };
     info!("{} using parameters: maxitemsinpage={}, maxpages={}", PLUGIN_NAME, maxitemsinpage, maxpages);
 
-    let mut already_retrieved_urls = get_urls_from_database(&app_config);
-    info!("{}: Got {} previously retrieved urls from table.", PLUGIN_NAME, already_retrieved_urls.len());
-
-    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str());
-
     match get_data_folder(&app_config).to_str(){
         Some(data_folder_name) => {
 
             let _count_docs = get_url_listing(
                 STARTER_URLS,
-                &mut already_retrieved_urls,
+                database_filename.as_str(),
                 &client,
                 tx,
                 data_folder_name,
@@ -109,7 +107,7 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 /// ```
 fn get_url_listing(
     starter_urls: [(&str, &str); 6],
-    already_retrieved_urls: &mut HashSet<String>,
+    database_filename: &str,
     client: &reqwest::blocking::Client,
     tx: Sender<document::Document>,
     data_folder: &str,
@@ -120,6 +118,9 @@ fn get_url_listing(
 ) -> u32 {
 
     info!("Plugin {}: Getting url listing for ", PLUGIN_NAME);
+    let mut already_retrieved_urls = get_urls_from_database(database_filename, PLUGIN_NAME);
+    info!("For module {}: Got {} previously retrieved urls from table.", PLUGIN_NAME, already_retrieved_urls.len());
+
     let mut counter = 0;
 
     for (starter_url, section_name) in starter_urls {
@@ -131,10 +132,12 @@ fn get_url_listing(
             listing_url_with_args.push_str(&urlargs);
 
             // retrieve content from this url and extract vector of documents, mainly individual urls to retrieve.
+            let content = network::http_get(&listing_url_with_args, &client, retry_times, wait_time);
             let mut new_docs = get_docs_from_listing_page(
+                content,
                 &listing_url_with_args,
                 section_name,
-                already_retrieved_urls,
+                &mut already_retrieved_urls,
                 client,
                 retry_times,
                 wait_time,
@@ -146,7 +149,7 @@ fn get_url_listing(
                 match tx.send(doc_to_process) {
                     Result::Ok(_res) => {
                         counter += 1;
-                        debug!("Send another document for processing");
+                        debug!("Sent another document for processing, count so far = {}", counter);
                     },
                     Err(e) => error!("When sending document via channel: {}", e)
                 }
@@ -185,7 +188,7 @@ fn get_url_listing(
 ///                 "/var/cache/newslookout"
 ///             );
 ///
-fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, already_retrieved_urls: &mut HashSet<String>, client: &reqwest::blocking::Client, retry_times:u64, wait_time:u64, data_folder: &str) -> Vec<document::Document>{
+fn get_docs_from_listing_page(content: String, url_listing_page: &String, section_name: &str, already_retrieved_urls: &mut HashSet<String>, client: &reqwest::blocking::Client, retry_times:u64, wait_time:u64, data_folder: &str) -> Vec<document::Document>{
 
     let mut new_docs: Vec<document::Document> = Vec::new();
 
@@ -198,11 +201,10 @@ fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, alr
 
     // get url list:
     info!("{}: Retrieving url listing from: {}", PLUGIN_NAME, url_listing_page);
-    let content = network::http_get(url_listing_page, &client, retry_times, wait_time);
     // parse content using scraper
     let html_document = scraper::Html::parse_document(&content.as_str());
 
-    for row_each in html_document.select(&rows_selector){
+    'rows_loop: for row_each in html_document.select(&rows_selector){
 
         // prepare empty document:
         let mut this_new_doc = document::Document{
@@ -216,12 +218,12 @@ fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, alr
             unique_id: "".to_string(),
             referrer_text: "".to_string(),
             text: "".to_string(),
-            source_author: "".to_string(),
+            source_author: PUBLISHER_NAME.to_string(),
             recipients: "".to_string(),
             publish_date_ms: Utc::now().timestamp(),
             links_inward: Vec::new(),
             links_outwards: Vec::new(),
-            text_parts: HashMap::new(),
+            text_parts: Vec::new(),
             filename: "".to_string(),
         };
 
@@ -235,21 +237,20 @@ fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, alr
             if let Some(href) = alink_elem.value().attr("href") {
                 this_new_doc.url = href.parse().unwrap();
 
-                info!("{}: checking url: {} if already retrieved? {}", PLUGIN_NAME, this_new_doc.url, already_retrieved_urls.contains(this_new_doc.url.as_str()));
+                debug!("{}: checking url: {} if already retrieved? {}", PLUGIN_NAME, this_new_doc.url, already_retrieved_urls.contains(this_new_doc.url.as_str()));
 
-                if already_retrieved_urls.contains(this_new_doc.url.as_str()){
+                if already_retrieved_urls.contains(&this_new_doc.url){
                     info!("{}: Ignoring already retrieved url: {}", PLUGIN_NAME, this_new_doc.url);
-                    continue;
+                    continue 'rows_loop;
                 }
+                // get content:
                 this_new_doc.html_content = network::http_get(&this_new_doc.url, &client, retry_times, wait_time);
                 debug!("From listing page {}: got the document url {}, and its content of size: {}",
                     url_listing_page, this_new_doc.url, this_new_doc.html_content.len());
-                // TODO: identify why some urls are still retrieved when they already exist in set
-                if already_retrieved_urls.insert(this_new_doc.url.clone()) == false {
-                    error!("Could not add this URL: {} to URLs already retrieved.", this_new_doc.url);
-                }else{
-                    info!("Added this URL: {} to URLs already retrieved.", this_new_doc.url);
-                }
+
+                _ = already_retrieved_urls.insert(this_new_doc.url.clone());
+                debug!("count of urls in set after adding url: {}", already_retrieved_urls.len());
+
             }
         }
 
@@ -263,13 +264,13 @@ fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, alr
                     error!("Could not parse date '{}', error: {}", date_str.as_str(), date_err)
                 }
             }
-            debug!("From {} , got date = {}, timestamp = {}", this_new_doc.url, date_str, this_new_doc.publish_date_ms);
+            debug!("From url {} , identified date = {}, timestamp = {}", this_new_doc.url, date_str, this_new_doc.publish_date_ms);
         }
 
         for title_span_elem in row_each.select(&doctitle_selector) {
             this_new_doc.title = clean_text(get_text_from_element(title_span_elem));
             this_new_doc.links_inward = vec![url_listing_page.clone()];
-            info!("{}: Retrieved {} listed on {} with title: '{}'", PLUGIN_NAME, this_new_doc.url, url_listing_page, this_new_doc.title);
+            debug!("{}: Identified title: '{}' for url {}", PLUGIN_NAME, this_new_doc.title, this_new_doc.url);
         }
 
         let mut snippet_text = String::from(" ");
@@ -281,15 +282,15 @@ fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, alr
                 .replace("\n", " ");
             snippet_text.push_str(" ");
             snippet_text.push_str(description_snippet.as_str());
+            debug!(" ---Decoding Snippet---: {}", snippet_text);
             if let Some(caps) = snippet_regex.captures(snippet_text.as_str()) {
                 let id_prefix = caps.get(1).unwrap().as_str();
                 this_new_doc.unique_id = clean_text(caps.get(2).unwrap().as_str().to_string());
                 let pubdate_longformat_str = caps.get(3).unwrap().as_str();
                 this_new_doc.recipients = caps.get(5).unwrap().as_str().to_string();
-                debug!("id_prefix: {},\n unique_id: {},\n pubdate_longformat_str: {},\n recipients: {}",
+                debug!("\tid_prefix: {},\n unique_id: {},\n pubdate_longformat_str: {},\n recipients: {}",
                     id_prefix, this_new_doc.unique_id, pubdate_longformat_str, this_new_doc.recipients);
             }
-            debug!("---Snippet---: {}", snippet_text);
         }
 
         for pdf_url_elem in row_each.select(&pdf_link_selector) {
@@ -307,7 +308,7 @@ fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, alr
                     // persist to disk
                     match File::create(&pdf_file_path) {
                         Ok(mut pdf_file) => {
-                            debug!("Created file to write data from title: '{}' to pdf file: {:?}", this_new_doc.title, pdf_file_path);
+                            debug!("Created pdf file: {:?}, now starting to write data for: '{}' ", pdf_file_path, this_new_doc.title);
                             match pdf_file.write_all(pdf_data.as_bytes()) {
                                 Ok(_write_res) => info!("From url {}, retrieved pdf file {} and wrote {} bytes to file: {}", this_new_doc.url, this_new_doc.pdf_url, pdf_data.len(), pdf_file_path.as_os_str().to_str().unwrap()),
                                 Err(write_err) => error!("When writing PDF file to disk: {}", write_err)
@@ -345,11 +346,11 @@ fn custom_data_processing(doc_to_process: &mut document::Document){
     }
 
     info!("{}: Splitting document '{}' into parts.", PLUGIN_NAME, doc_to_process.title);
-    let text_strings = split_by_word_count(doc_to_process.text.as_str(), 400, 15);
-
-    let num_parts = text_strings.len();
-    doc_to_process.text_parts = text_strings.into_iter().zip(1..num_parts).map(|(text_block,counter)| (counter, text_block.to_string()) ).collect();
-
+    let mut text_part_counter: usize = 1;
+    for text_part in split_by_word_count(doc_to_process.text.as_str(), 400, 15){
+        doc_to_process.text_parts.push(HashMap::from([("id".to_string(), text_part_counter.to_string()), ("text".to_string(),text_part)]));
+        text_part_counter += 1;
+    }
 }
 
 #[cfg(test)]

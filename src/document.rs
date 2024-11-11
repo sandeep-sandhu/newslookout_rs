@@ -38,7 +38,7 @@ pub(crate) struct Document {
     pub(crate) publish_date_ms: i64,
     pub(crate) links_inward: Vec<String>,
     pub(crate) links_outwards: Vec<String>,
-    pub(crate) text_parts: HashMap<usize, String>,
+    pub(crate) text_parts: Vec<HashMap<String, String>>,
     pub(crate) filename: String,
 }
 
@@ -71,7 +71,7 @@ mod tests {
             publish_date_ms: nowdatetime.timestamp(),
             links_inward: vec![],
             links_outwards: vec![],
-            text_parts: HashMap::from([(1,"first".to_string()), (2, "second".to_string())]),
+            text_parts: vec![ HashMap::from( [("id".to_string(),"1".to_string()), ("text".to_string(), "blank".to_string())] ) ],
             filename: "".to_string(),
         };
 

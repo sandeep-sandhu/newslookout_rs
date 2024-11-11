@@ -3,12 +3,15 @@
 
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs;
+use std::path::{Path, PathBuf};
 use {
     regex::Regex,
 };
 
 
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, SendError};
 use std::thread::JoinHandle;
 use config::Config;
 use chrono::Utc;
@@ -41,20 +44,52 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 
 fn get_and_send_docs_from_data_folder(data_folder_name: &str, tx: Sender<document::Document>) -> usize{
 
-    let mut new_docs: Vec<document::Document> = Vec::new();
+    let mut new_docs_counter: usize = 0;
 
-    // TODO: implement this:
+    let mut all_json_files: Vec<PathBuf> = Vec::new();
     // get json file listing from data folder
-    // for each file, read contents
-    // de-serialize string to Document
-    // for each document extracted run function custom_data_processing(mydoc)
+    match fs::read_dir(data_folder_name) {
+        Err(e) => error!("When reading json files in data folder {}, error:{}", data_folder_name, e),
+        Ok(dir_entries) => {
+            all_json_files = dir_entries // Filter out all those directory entries which couldn't be read
+                .filter_map(|res| res.ok())
+                // Map the directory entries to paths
+                .map(|dir_entry| dir_entry.path())
+                // Filter out all paths with extensions other than `json`
+                .filter_map(|path| {
+                    if path.extension().map_or(false, |ext| ext == "json") {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+        }
+    }
+    // for each file, read contents:
+    for json_file_path in all_json_files{
 
-    return new_docs.len();
+        let open_file = fs::File::open(json_file_path)
+            .expect("JSON file should open read only");
+        // de-serialize string to Document:
+        let mut mydoc: Document = serde_json::from_reader(open_file).expect("JSON was not well-formatted");
+        // for each document extracted run function
+        custom_data_processing(&mut mydoc);
+        match tx.send(mydoc) {
+            Ok(_) => {}
+            Err(e) => {error!{"When sending offline document: {}", e}}
+        }
+        new_docs_counter += 1;
+    }
+
+    return new_docs_counter;
 }
 
 fn custom_data_processing(mydoc: &mut document::Document){
 
-    info!("{}: processing url document", PLUGIN_NAME);
+    info!("{}: processing url document with title - '{}'", PLUGIN_NAME, mydoc.title);
+
+    // implement any custom data processing
 
 }
 

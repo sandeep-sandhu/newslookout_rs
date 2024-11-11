@@ -31,6 +31,7 @@ use crate::plugins::{
     mod_ollama,
     mod_solrsubmit};
 use crate::document::{DocInfo, Document};
+use crate::utils::extract_plugin_params;
 
 pub fn start_pipeline(config: config::Config) -> usize{
 
@@ -44,28 +45,11 @@ pub fn start_pipeline(config: config::Config) -> usize{
     match thread_builder.spawn(
         move || run_data_proc_pipeline(data_proc_pipeline_tx, data_proc_pipeline_rx, config_copy)
     ){
-        Result::Ok(handle) => info!("Launched data processing thread with handle {:?}", handle.thread().name()),
+        Result::Ok(handle) => info!("Launched data processing thread"),
         Err(e) => error!("Could not spawn thread for data processing plugin, error: {}", e)
     }
 
     let retriever_thread_handles = start_retrieval_plugins(&config, retrieve_thread_tx);
-
-    for task_handle in retriever_thread_handles {
-        let thread = &task_handle.thread();
-        let thread_id = thread.id();
-        let mut th_name = String::from("");
-        match thread.name() {
-            Some(thread_name_str) => {
-                th_name = thread_name_str.to_string();
-                info!("Waiting for thread: {:?}, name: {:?}", thread_id, th_name);
-            },
-            None => info!("Waiting for thread: {:?}", thread_id),
-        }
-        match task_handle.join() {
-            Ok(_result) => log::info!("Retriever thread {:?} {} finished", thread_id, th_name),
-            Err(e) => log::error!("Error joining retriever thread {:?} to queue: {:?}", thread_id, e)
-        }
-    }
 
     let mut all_docs_processed: Vec<document::DocInfo> = Vec::new();
     for processed_docinfo in processed_data_rx {
@@ -90,7 +74,7 @@ fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInfo {
 
     debug!("Writing document from url: {:?}", received.url);
     let mut docinfo_for_sql = DocInfo{
-        plugin_name: received.plugin_name.clone(),
+        plugin_name: received.module.clone(),
         url: received.url.clone(),
         pdf_url: received.pdf_url.clone(),
         title: received.title.clone(),
@@ -100,14 +84,15 @@ fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInfo {
         section_name: received.section_name.clone(),
     };
 
+    let json_filename = utils::make_unique_filename(&received, "json");
+    debug!("Writing document to file: {}", json_filename);
+    // make full path by joining folder to unique filename
+    let json_file_path = Path::new(data_folder_name.as_str()).join(&json_filename);
+    received.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
+
     // serialize json to string
     match serde_json::to_string_pretty(&received){
         Ok(json_data) => {
-            let json_filename = utils::make_unique_filename(&received, "json");
-            debug!("Writing document to file: {}", json_filename);
-            // make full path by joining folder to unique filename
-            let json_file_path = Path::new(data_folder_name.as_str()).join(&json_filename);
-            received.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
             // persist to json
             match File::create(&json_file_path){
                 Ok(mut file) => {
@@ -130,6 +115,14 @@ fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInfo {
     return docinfo_for_sql;
 }
 
+/// Start the data retrieval plugins in pipeline which starts them in parallel in multiple threads
+///
+/// # Arguments
+///
+/// * `config`: The applicaiton configuration
+/// * `tx`:
+///
+/// returns: Vec<JoinHandle<()>, Global>
 pub fn start_retrieval_plugins(config: &Config, tx: Sender<document::Document>) -> Vec<JoinHandle<()>> {
 
     let mut task_run_handles: Vec<JoinHandle<()>> = Vec::new();
@@ -182,7 +175,7 @@ pub fn start_retrieval_plugins(config: &Config, tx: Sender<document::Document>) 
                             }
                         }
                     } else {
-                        info!("Ignoring disabled plugin: {}", plugin_name);
+                        debug!("Ignoring disabled plugin: {}", plugin_name);
                     }
                 }
             }
@@ -194,102 +187,41 @@ pub fn start_retrieval_plugins(config: &Config, tx: Sender<document::Document>) 
     return task_run_handles;
 }
 
-fn extract_plugin_params(plugin_map: Map<String, Value>) -> (String, String, bool, i64) {
-    let mut plugin_enabled: bool = false;
-    let mut plugin_priority: i64 = 99;
-    let mut plugin_name = String::from("");
-    let mut plugin_type = String::from("retriever");
 
-    match plugin_map.get("name") {
-        Some(name_str) => {
-            plugin_name = name_str.to_string();
-        },
-        None => {
-            error!("Unble to get plugin name from the config! Using default value of '{}'", plugin_name);
-        }
+#[derive(Copy, Clone, Eq, PartialEq)]
+struct PluginPriority{
+    priority: isize,
+    plugin_function: fn(Sender<Document>, Receiver<Document>, &Config)
+}
+// The priority queue depends on `Ord`.
+// Explicitly implement the trait so the priority queue becomes a min-heap
+impl Ord for PluginPriority {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.priority.cmp(&self.priority)
     }
-    match plugin_map.get("enabled") {
-        Some(&ref enabled_str) => {
-            plugin_enabled = enabled_str
-                .clone()
-                .into_bool()
-                .expect(
-                    "In config file, fix the invalid value of plugin state, value should be either true or false"
-                );
-        },
-        None => {
-            error!("Could not interpret whether enabled state is true or false for plugin {}", plugin_name)
-        }
+}
+// `PartialOrd` needs to be implemented as well.
+impl PartialOrd for PluginPriority {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
-    match plugin_map.get("type") {
-        Some(plugin_type_str) => {
-            plugin_type = plugin_type_str.to_string();
-        }
-        None => {
-            error!("Invalid/missing plugin type in config, Using default value = '{}'",
-                            plugin_type);
-        }
-    }
-
-    match plugin_map.get("priority") {
-        Some(&ref priority_str) => {
-            plugin_priority = priority_str
-                .clone()
-                .into_int()
-                .expect(
-                    "In config file, fix the priority value of plugin state; value should be positive integer"
-                );
-        },
-        None => {
-            error!("Could not interpret priority for plugin {}", plugin_name)
-        }
-    }
-    return (plugin_name, plugin_type, plugin_enabled, plugin_priority)
 }
 
-fn run_data_proc_pipeline(tx: Sender<document::DocInfo>, rx: Receiver<document::Document>, config: Config){
 
-    // TODO: change to use threads for all plugins with initialisation and then message processing
+/// Run the data processing pipeline in which all data processing plugins are run in serial
+/// manner in their order of priority.
+///
+/// # Arguments
+///
+/// * `dataproc_docs_output_tx`:
+/// * `dataproc_docs_input_rx`:
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+fn run_data_proc_pipeline(dataproc_docs_output_tx: Sender<document::DocInfo>, dataproc_docs_input_rx: Receiver<document::Document>, config: Config){
 
-    let mut data_proc_funcs: Vec<fn(&Document, &Config)> = Vec::new();
-
-    info!("Data processing thread: Reading the configuration and starting the plugins.");
-    let plugins = config.get_array("plugins").expect("No plugins specified in configuration file!");
-
-    for plugin in plugins {
-        let config_clone = config.clone();
-        match plugin.into_table() {
-            Ok(plugin_map) => {
-                let (plugin_name, plugin_type, plugin_enabled, priority) = extract_plugin_params(plugin_map);
-                if plugin_enabled & plugin_type.eq("data_processor") {
-                    match plugin_name.as_str() {
-                        "mod_dataprep" => {
-                            info!("Starting the plugin: {}",plugin_name);
-                            data_proc_funcs.push(mod_dataprep::process_data);
-                        },
-                        "mod_classify" => {
-                            info!("Starting the plugin: {}",plugin_name);
-                            data_proc_funcs.push(mod_classify::process_data);
-                        },
-                        "mod_dedupe" => {
-                            info!("Starting the plugin: {}",plugin_name);
-                            data_proc_funcs.push(mod_dedupe::process_data);
-                        },
-                        "mod_ollama" => {
-                            info!("Starting the plugin: {}",plugin_name);
-                            data_proc_funcs.push(mod_ollama::process_data);
-                        },
-                        "mod_solrsubmit" => {
-                            info!("Starting the plugin: {}",plugin_name);
-                            data_proc_funcs.push(mod_solrsubmit::process_data);
-                        },
-                        _ => {}
-                    }
-                }
-            }
-            Err(e) => error!("When reading plugin specific config: {}", e)
-        }
-    }
+    let mut plugin_heap: BinaryHeap<PluginPriority> = BinaryHeap::new();
+    let mut matched_data_proc_fn: fn(Sender<Document>, Receiver<Document>, &Config) = mod_dataprep::process_data;
 
     // write file to the folder specified in config file, e.g.: data_folder_name=/var/cache
     let mut data_folder_name = String::from("");
@@ -298,24 +230,108 @@ fn run_data_proc_pipeline(tx: Sender<document::DocInfo>, rx: Receiver<document::
         Err(e) => error!("When getting data folder name: {}", e)
     }
 
-    info!("Loaded {} plugins for data processing pipeline", data_proc_funcs.len());
-    for doc in rx{
-        info!("Data pipeline processing doc titled - {}", doc.title);
-        for data_proc_fn in &data_proc_funcs{
-            let _ = data_proc_fn(&doc, &config);
+    info!("Data processing pipeline: Reading the configuration and starting the plugins.");
+    let plugins = config.get_array("plugins").expect("No plugins specified in configuration file!");
+
+    for plugin in plugins {
+        match plugin.into_table() {
+            Ok(plugin_map) => {
+                let (plugin_name, plugin_type, plugin_enabled, priority) = extract_plugin_params(plugin_map);
+                if plugin_enabled & plugin_type.eq("data_processor") {
+                    match plugin_name.as_str() {
+                        "mod_dataprep" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_dataprep::process_data;
+                        },
+                        "mod_classify" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_classify::process_data;
+                        },
+                        "mod_dedupe" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_dedupe::process_data;
+                        },
+                        "mod_ollama" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_ollama::process_data;
+                        },
+                        "mod_solrsubmit" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_solrsubmit::process_data;
+                        },
+                        _ => {
+                            error!("Cannot start unknown plugin: {}", plugin_name);
+                            break;
+                        }
+                    }
+                    // now add to heap:
+                    plugin_heap.push(PluginPriority{priority: priority, plugin_function: matched_data_proc_fn})
+                }
+            }
+            Err(e) => error!("When reading plugin specific config: {}", e)
         }
+    }
+    // Use threads for all plugins with following message processing setup:
+    // dataproc_docs_input_rx --(raw doc)--> tx1 --> rx1 --> tx2 --> rx2 --(processed doc)--> dataproc_docs_output_tx
+    // where: thread1 is given:  dataproc_docs_input_rx, tx1
+    //        thread2 is given:                     rx1, tx2
+    //        thread3 is given:                     rx2, dataproc_docs_output_tx
+    let mut dataproc_thread_run_handles: Vec<JoinHandle<()>> = Vec::new();
+    let mut previous_rx = dataproc_docs_input_rx;
+    while let Some( PluginPriority{ priority, plugin_function }) = plugin_heap.pop() {
+        // for each item i in plugin_heap:
+        debug!("Starting data processing plugin thread with priority - {}", priority);
+        // create a channel with txi, rxi
+        let (txi, rxi) = mpsc::channel();
+        // start a new thread with tx= txi and rx=previous_rx, and clone of config:
+        let config_clone= config.clone();
+        let handle = thread::spawn(move || plugin_function(txi, previous_rx, &config_clone));
+        dataproc_thread_run_handles.push(handle);
+        previous_rx = rxi;
+    }
+    // After loop, wait for documents on channel previous_rx and,
+    // save to disk and then
+    // transmit docinfo to dataproc_docs_output_tx
+    for doc in previous_rx {
+        info!("Saving processed document titled - {}", doc.title);
         let docinfo:DocInfo = save_to_disk(doc, &data_folder_name);
-        tx.send(docinfo).expect("when sending doc via tx");
+        dataproc_docs_output_tx.send(docinfo).expect("when sending doc via tx");
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BinaryHeap;
+    use crate::plugins::mod_dataprep;
     use crate::queue;
+    use crate::queue::PluginPriority;
 
     #[test]
     fn test_1() {
         // TODO: implement this
         assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn test_priority_queue(){
+        let mut plugin_heap: BinaryHeap<PluginPriority> = BinaryHeap::new();
+        let plugin1 = crate::queue::PluginPriority{priority: 10, plugin_function: mod_dataprep::process_data};
+        let plugin2 = crate::queue::PluginPriority{priority: -20, plugin_function: mod_dataprep::process_data};
+        let plugin3 = crate::queue::PluginPriority{priority: 2, plugin_function: mod_dataprep::process_data};
+        plugin_heap.push(plugin1);
+        plugin_heap.push(plugin2);
+        plugin_heap.push(plugin3);
+        if let Some( PluginPriority{ priority, plugin_function }) = plugin_heap.pop() {
+            println!("1st item, got priority = {}", priority);
+            assert_eq!(priority, -20, "Invalid min heap/priority queue processing");
+        }
+        if let Some( PluginPriority{ priority, plugin_function }) = plugin_heap.pop() {
+            println!("2nd item, got priority = {}", priority);
+            assert_eq!(priority, 2, "Invalid min heap/priority queue processing");
+        }
+        if let Some( PluginPriority{ priority, plugin_function }) = plugin_heap.pop() {
+            println!("3rd item, got priority = {}", priority);
+            assert_eq!(priority, 10, "Invalid min heap/priority queue processing");
+        }
     }
 }

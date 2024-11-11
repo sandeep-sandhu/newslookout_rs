@@ -1,22 +1,48 @@
 // file: mod_classify.rs
 
+use std::sync::mpsc::{Receiver, Sender};
+use config::Config;
 use log::{error, warn, info, debug};
 
 use crate::{document, network};
-use crate::document::Document;
 use crate::utils::{clean_text, get_text_from_element, to_local_datetime};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_classify";
 const PUBLISHER_NAME: &str = "Data Classification";
 
-pub(crate) fn process_data(doc: &document::Document, config: &config::Config){
+/// Process documents received on channel rx and,
+/// transmit the updated documents to tx.
+///
+/// # Arguments
+///
+/// * `tx`: Queue transmitter for the next thread
+/// * `rx`: Queue receiver for this thread
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+///
+pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, config: &Config){
+
     info!("{}: Getting configuration.", PLUGIN_NAME);
 
-    // Print the configuration options:
-    debug!("Loading models from models_dir = {:?}", config.get_string("models_dir"));
+    for doc in rx {
+        info!("Saving processed document titled - {}", doc.title);
+        let updated_doc:document::Document = update_doc(doc);
+        match tx.send(updated_doc) {
+            Result::Ok(_) => {},
+            Err(e) => error!("{}: When sending processed doc via tx: {}", PLUGIN_NAME, e)
+        }
+    }
+
+    info!("{}: Completed processing.", PLUGIN_NAME);
+}
+
+fn update_doc(raw_doc: document::Document) -> document::Document{
+    info!("{}: updating document titled - '{}'", PLUGIN_NAME, raw_doc.title);
+
     // TODO: implement this
 
-    info!("{}: Processed document: {}", PLUGIN_NAME, doc.title);
+    return raw_doc;
 }
 
 #[cfg(test)]

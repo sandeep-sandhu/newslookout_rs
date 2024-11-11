@@ -4,16 +4,14 @@
 extern crate pdf_extract;
 extern crate lopdf;
 
-use std::collections::HashSet;
-use std::path::PathBuf;
-use std::path;
+use std::string::String;
+use std::collections;
 use std::io::BufWriter;
+use std::io::Write;
+use std::path;
 use std::fs::File;
 use std::ops::Add;
 use std::{any::Any, env};
-use std::path::Path;
-use std::string::String;
-use std::io::Write;
 
 use log::{debug, error, info, LevelFilter, warn};
 use log4rs::append::file::FileAppender;
@@ -24,11 +22,10 @@ use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::filter::threshold::ThresholdFilter;
 use log4rs::config::{Appender, Root};
-use config::{Config, Environment, FileFormat};
-use config::builder::ConfigBuilder;
 
+use config::{Config, Environment, FileFormat, Map, Value};
+use config::builder::ConfigBuilder;
 use chrono::{DateTime, Local, MappedLocalTime, NaiveDate, NaiveDateTime, NaiveTime};
-//use pdf_extract::*;
 use rusqlite::{Row, Rows};
 use rusqlite::params;
 use scraper::{ElementRef};
@@ -54,17 +51,47 @@ pub fn read_config(cfg_file: String) -> Config{
     }
 }
 
+/// Initialise the application by configuring the log file, and
+/// setting the PID file to prevent duplicate instances form running simultaneously.
+///
+/// # Arguments
+///
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+///
 pub(crate) fn init_application(config: &Config){
     // setup logging:
     match config.get_string("log_file"){
         Ok(logfile) =>{
+
+            //set loglevel parameter from log file:
+            let mut app_loglevel = LevelFilter::Info;
+            match config.get_string("log_level"){
+                Ok(loglevel_str) =>{
+                    match loglevel_str.as_str() {
+                        "DEBUG" => app_loglevel = LevelFilter::Debug,
+                        "INFO" => app_loglevel = LevelFilter::Info,
+                        "WARN" => app_loglevel = LevelFilter::Warn,
+                        "ERROR" => app_loglevel = LevelFilter::Error,
+                        _other => error!("Unknown log level configured in logfile: {}", _other)
+                    }
+                },
+                Err(e) => error!("When getting the log level: {}", e)
+            }
             println!("Logging to file: {:?}", logfile);
 
+            // read parameter from config file : max_logfile_size
+            let mut size_limit =10 * 1024 * 1024; // 10 MB
+            match config.get_int("max_logfile_size") {
+                Ok(max_logfile_size) => size_limit = max_logfile_size,
+                Err(e) => error!("When reading max logfile size: {}", e)
+            }
+            // TODO: implement log rotation
             // logfile.push_str("{}");
             // let window_size = 10;
             // let fixed_window_roller =
             //     FixedWindowRoller::builder().build(logfile.as_str(), window_size).unwrap();
-            // let size_limit = 10 * 1024 * 1024; // 10 MB
             // let size_trigger = SizeTrigger::new(size_limit);
             // let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
             // let config = log4rs::config::Config::builder().appender(
@@ -94,7 +121,7 @@ pub(crate) fn init_application(config: &Config){
                 .appender(Appender::builder().build("logfile", Box::new(logfile)))
                 .build(Root::builder()
                     .appender("logfile")
-                    .build(LevelFilter::Info))
+                    .build(app_loglevel))
                 .expect("Cound not build a logging config.");
 
             log4rs::init_config(logconfig).expect("Cound not initialize logging.");
@@ -135,6 +162,14 @@ pub(crate) fn init_application(config: &Config){
     }
 }
 
+/// Shuts down the application by performing any cleanup required.
+///
+/// # Arguments
+///
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+///
 pub(crate) fn shutdown_application(config: &Config){
     match config.get_string("pid_file"){
         Ok(pidfile) =>{
@@ -155,6 +190,13 @@ pub(crate) fn shutdown_application(config: &Config){
 }
 
 /// Removes any unnecessary whitespaces from the string and returns the cleaned string
+///
+/// # Arguments
+///
+/// * `text`: The string to cleanup
+///
+/// returns: String
+///
 pub fn clean_text(text: String) -> String {
     let x: Vec<&str> = text.split_whitespace().collect();
     x.join(" ").trim().to_string()
@@ -196,6 +238,7 @@ pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) ->
         }
     }
 }
+
 /// Gets all the texts inside an HTML element
 pub fn get_text_from_element(elem: ElementRef) -> String {
     let mut output_string = String::new();
@@ -205,15 +248,98 @@ pub fn get_text_from_element(elem: ElementRef) -> String {
     output_string
 }
 
+/// Converts naive date to local date-timestamp
+///
+/// # Arguments
+///
+/// * `date`: The NaiveDate to convert
+///
+/// returns: DateTime<Local>
+///
+/// # Examples
+///
+/// ```
+///
+/// ```
 pub fn to_local_datetime(date: NaiveDate) -> DateTime<Local> {
     let datetime = date.and_time(NaiveTime::default());
     match datetime.and_local_timezone(Local) {
-        MappedLocalTime::Single(dt) => dt,
-        MappedLocalTime::Ambiguous(dt0, _dt1) => dt0,
+        MappedLocalTime::Single(dt) => return dt,
+        MappedLocalTime::Ambiguous(dt0, _dt1) => return dt0,
         MappedLocalTime::None => panic!("Invalid date, cannot convert to timestamp")
     }
 }
 
+
+/// Extract the plugin's parameters from its entry in the application's config file.
+///
+/// # Arguments
+///
+/// * `plugin_map`: The plugin map of all plugins
+///
+/// returns: (String, String, bool, isize)
+pub fn extract_plugin_params(plugin_map: Map<String, Value>) -> (String, String, bool, isize) {
+    let mut plugin_enabled: bool = false;
+    let mut plugin_priority: isize = 99;
+    let mut plugin_name = String::from("");
+    let mut plugin_type = String::from("retriever");
+
+    match plugin_map.get("name") {
+        Some(name_str) => {
+            plugin_name = name_str.to_string();
+        },
+        None => {
+            error!("Unble to get plugin name from the config! Using default value of '{}'", plugin_name);
+        }
+    }
+    match plugin_map.get("enabled") {
+        Some(&ref enabled_str) => {
+            match enabled_str.clone().into_bool(){
+                Result::Ok(plugin_enabled_bool) => plugin_enabled = plugin_enabled_bool,
+                Err(e) => error!("In config file, for plugin {}, fix the invalid value of plugin state, value should be either true or false: {}", plugin_name, e)
+            }
+        },
+        None => {
+            error!("Could not interpret whether enabled state is true or false for plugin {}", plugin_name)
+        }
+    }
+    match plugin_map.get("type") {
+        Some(plugin_type_str) => {
+            plugin_type = plugin_type_str.to_string();
+        }
+        None => {
+            error!("Invalid/missing plugin type in config, Using default value = '{}'",
+                            plugin_type);
+        }
+    }
+    match plugin_map.get("priority") {
+        Some(&ref priority_str) => {
+            match priority_str.clone().into_int(){
+                Result::Ok(priority_int ) => plugin_priority = priority_int as isize,
+                Err(e) => error!("In config file, for plugin {}, fix the priority value of plugin state; value should be positive integer: {}", plugin_name, e)
+            }
+        },
+        None => {
+            error!("Could not interpret priority for plugin {}", plugin_name)
+        }
+    }
+    return (plugin_name, plugin_type, plugin_enabled, plugin_priority)
+}
+
+
+/// Get configuration parameters for network communication
+///
+/// # Arguments
+///
+/// * `config_clone`:
+///
+/// returns: (u64, u64, u64, String)
+///
+/// # Examples
+///
+/// ```
+///
+/// ```
 pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String) {
     let mut fetch_timeout_seconds: u64 = 20;
     let mut user_agent:String = String::from("Mozilla");
@@ -244,7 +370,7 @@ pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String) {
     return (fetch_timeout_seconds, retry_times, wait_time, user_agent);
 }
 
-pub fn get_data_folder(config: &Config) -> PathBuf {
+pub fn get_data_folder(config: &Config) -> std::path::PathBuf {
     match config.get_string("data_dir") {
         Ok(dirname) => {
             let dirpath = std::path::Path::new(dirname.as_str());
@@ -259,39 +385,60 @@ pub fn get_data_folder(config: &Config) -> PathBuf {
     return path_currdir;
 }
 
-pub fn get_urls_from_database(config: &config::Config) -> HashSet<String> {
-    let mut urls_already_retrieved: HashSet<String> = HashSet::new();
+pub fn get_database_filename(config: &Config) -> String {
     match config.get_string("completed_urls_datafile") {
-        Ok(sqlite_filename) => {
-            match rusqlite::Connection::open(sqlite_filename.as_str()) {
-                Ok(conn) => {
-                    match conn.prepare("select distinct url from completed_urls"){
-                        Result::Ok(mut sql_stmt) =>{
-                            match sql_stmt.query([]){
-                                Result::Ok(mut result_rows) => {
-                                    while let Ok(Some(row)) = result_rows.next() {
-                                        match row.get(0){
-                                            Result::Ok(first_col) => {
-                                                urls_already_retrieved.insert(first_col);
-                                            },
-                                            Err(e) => error!("Could not get first column from result row")
-                                        }
-                                    }
-                                },
-                                Err(e) => error!("When running the query to get urls: {}", e)
-                            };
-                        },
-                        Err(e) => error!("When preparing SQL statement to get URLs already retrieved: {}", e)
-                    }
-                },
-                Err(er) => error!("When opening connection to database {}: {}", sqlite_filename.as_str(), er),
-            }
-        },
-        Err(e) => error!("When retrieving config parameter for database: {}", e),
+        Ok(dirname) => return dirname,
+        Err(e) => error!("When getting database filename: {}", e)
     }
+    return "newslookout_urls.db".to_string();
+}
+
+/// Get already retrieved URLs from the database for the given plugin/module
+///
+/// # Arguments
+///
+/// * `config`: The application's configuration
+/// * `module_name`: The name of the plugin/module
+///
+/// returns: HashSet<String, RandomState>
+pub fn get_urls_from_database(sqlite_filename: &str, module_name: &str) -> collections::HashSet<String> {
+    let mut urls_already_retrieved: collections::HashSet<String> = collections::HashSet::new();
+        match rusqlite::Connection::open(sqlite_filename) {
+            Ok(conn) => {
+                // filter and return results for specified module only:
+                let sql_string = format!("select distinct url from completed_urls where plugin = '{}'", module_name);
+                match conn.prepare(sql_string.as_str()){
+                    Result::Ok(mut sql_stmt) =>{
+                        match sql_stmt.query([]){
+                            Result::Ok(mut result_rows) => {
+                                while let Ok(Some(row)) = result_rows.next() {
+                                    match row.get(0){
+                                        Result::Ok(first_col) => {
+                                            urls_already_retrieved.insert(first_col);
+                                        },
+                                        Err(e) => error!("Could not get first column from result row: {}", e)
+                                    }
+                                }
+                            },
+                            Err(e) => error!("When running the query to get urls: {}", e)
+                        };
+                    },
+                    Err(e) => error!("When preparing SQL statement to get URLs already retrieved: {}", e)
+                }
+            },
+            Err(er) => error!("When opening connection to database {}: {}", sqlite_filename, er),
+        }
     return urls_already_retrieved;
 }
 
+/// Insert all urls retrieved in this session into the database table.
+///
+/// # Arguments
+///
+/// * `config`: The application configuration
+/// * `processed_docinfos`: The DocInfo struct that contains the url and corresponding details
+///
+/// returns: u64
 pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos: &Vec<document::DocInfo>) -> u64 {
     // get the database filename form config file, or else create one in present directory "newslookout_urls.db":
     let mut database_fullpath = String::from("newslookout_urls.db");
@@ -368,6 +515,7 @@ pub fn word_count(text_str: &str) -> usize{
 }
 
 pub fn get_last_n_words(text_str: &str, count_n:usize) -> String {
+    // TODO: fix this since data is being changed (avoid removing newlines)
     let last_n_words_rev: Vec<&str> = text_str.split_whitespace().rev().take(count_n).collect();
     if count_n > last_n_words_rev.len(){
         info!("get_last_n_words: extracted only {} words, it is less than required {} words.", last_n_words_rev.len(), count_n);

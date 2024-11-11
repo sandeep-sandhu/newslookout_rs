@@ -1,6 +1,6 @@
 [package]
 name = "newslookout"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Sandeep Singh Sandhu"]
 description = "A web scraping platform built for news scanning, powered by Rust"
@@ -36,11 +36,9 @@ sqlx = { version = "0.8.2", features = [ "runtime-tokio-rustls", "postgres", "ma
 nom = "8.0.0-alpha2"
 #clap = { version = "4.5.20", features = ["derive"] }
 #webpki-roots = "0.26.6"
-#strsim = "0.11.1"
 #env_logger = "0.11.5"
 #postgres = "0.19.9"
 #linfa = "0.7.0"
-#faiss = "0.12.1"
 #once_cell = "1.20.2"
 #diesel = {version ="2.2.4", features = []}
 #r2d2-diesel = "1.0.0"
@@ -48,19 +46,21 @@ nom = "8.0.0-alpha2"
 #darn = "0.3.4"
 #plotly = "0.10.0"
 #jemallocator = "0.5.4"
-#xml-rs = "0.8.22"
-#xrust = "1.1.0"
+#strsim = "0.11.1"
 #jaro_winkler = "0.1.0"
 #postgres-native-tls = "0.5.0"
 #ndarray = "0.16.1"
 #polars = "0.44.2"
 #gbdt = "0.1.3"
-#tch = "0.17.0" # deep learning models
-#rust-bert = { version="0.23.0" , features = ["default"]}
-#rust_tokenizers = "8.1.1"
-#anyhow = "1.0.93"
 #confy = "^0.6.1"
 #csv = "1.3.0"
+#xml-rs = "0.8.22"
+#xrust = "1.1.0"
+#faiss = "0.12.1"
+tch = "0.17.0" # deep learning models
+rust-bert = { version="0.23.0" , features = ["default"]}
+rust_tokenizers = "8.1.1"
+anyhow = "1.0.93"
 
 [dev-dependencies]
 assert_cmd = "2.0.16"

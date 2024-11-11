@@ -28,15 +28,16 @@
 
 # The configuration directory is specified relative to the prefix director
 # However, an absolute path could also be given:
-conf_dir ="/opt/newslookout/conf"
+conf_dir ="conf"
 
 # The data_dir specifies the name of the data directory where the data files will be saved:
-data_dir =  "C:\\shared\\datasets\\newslookout_rs_data"
+#data_dir =  "/media/shared/datasets/newslookout_rs_data"
+data_dir =  "data/files"
 
 # the master data files will be stored in this folder
-master_data_dir = "/var/newslookout/master_data"
+master_data_dir = "data/master_data"
 
-models_dir =  "/opt/newslookout/models"
+models_dir =  "models"
 
 # location of the log file, here it is specified relative to the data directory:
 log_file = "logs/newslookout.log"
@@ -47,26 +48,14 @@ log_file = "logs/newslookout.log"
 pid_file = "logs/newslookout.pid"
 
 # the sqlite data file that stores the history of previously retrieved URLs
-completed_urls_datafile = "C:\\shared\\datasets\\newslookout_urls.db"
+#completed_urls_datafile = "/media/shared/newslookout_urls.db"
+completed_urls_datafile = "data/newslookout_urls.db"
 
 cookie_file="/var/newslookout/cookies.txt"
 
 # levels of recursion to follow links for identifying news articles within websites
 # min value is 1, max is 4, any other values do not have any effect
 recursion_level=1
-
-# Set this to True to enable the REST API for reporting status of the application:
-rest_api_enabled = true
-# hostname to listen for the status reporting service
-rest_api_host = "0.0.0.0"
-# port number to listen for the status reporting service
-rest_api_port = 8080
-# the SSL certificate to be used for the REST API
-rest_api_ssl_key = 'rest_svc.cer'
-rest_api_ssl_cert = 'rest_svc.key'
-
-# time in seconds to wait before refreshing the progress bar:
-progressbar_refresh_interval=5
 
 # time in seconds to wait for when retrieving a page:
 fetch_timeout = 60
@@ -92,37 +81,16 @@ retry_wait_rand_max_sec = 5
 save_html=true
 #save_html=false
 
-
-# proxy configuration paramters, for example:
-# proxy_url_http=127.0.0.1:8080
-# proxy_url_https=127.0.0.1:8080
-proxy_url_http=""
-proxy_url_https=""
-
-# user authentication to the proxy, username and password are decoded before converting to plain text:
-proxy_user=""
-proxy_password=""
-
-# proxy certificate path for the organisation's proxy server, this is to be trusted
-# If proxy_ca_certfile parameter is set to a directory, it must have been processed using the c_rehash utility supplied with OpenSSL.
-proxy_ca_certfile=""
-
-# WARNING: set parameter verify_ca_cert to False only if a cert cannot be verified since it may be internal to an organisation.
-# if it is set to False, requests will accept any TLS certificate presented by the server, and will ignore hostname mismatches and/or expired certificates, which will make the application vulnerable to man-in-the-middle (MitM) attacks.
-verify_ca_cert=true
-
 # the user agents to use for the web scraper's HTTP(S) requests:
-# use pipe delimiter to specify multiple different user agents
-# these will be rotated in round robin manner with each subsequent request.
-user_agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)|Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14"
+user_agent="Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14"
 
 
 # log levels can be one of the following
 # (starting from less verbosity to full verbosity): ERROR, WARN, INFO, or DEBUG
-# log_level=ERROR
-# log_level=WARN
-log_level="INFO"
-# log_level=DEBUG
+# log_level="ERROR"
+# log_level="WARN"
+ log_level="INFO"
+#log_level="DEBUG"
 
 # max file size of the log file, when the log file grows
 # beyond this size limit, it will be rotated:
@@ -149,9 +117,9 @@ plugins = [
  , {"enabled"=false, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
  , {"enabled"=false, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=false, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "maxpages"=3, "items_per_page"=3}
+ , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "maxpages"=50, "items_per_page"=5}
  , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3}
- # the following plugins will run in order of priority:
+ # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
  , {"enabled"=true, "name"="mod_dataprep", "type"="data_processor", "priority"=1}
  # it is recommended to keep these plugins disabled, they will slow down the entire application
@@ -165,8 +133,9 @@ plugins = [
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
  , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=3, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=true, "name"="mod_ollama", "type"="data_processor", "priority"=4, "host_port"="http://127.0.0.1:11434/", "model_name"="llama3_1_8b"}
- , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=5, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=true, "name"="mod_ollama", "type"="data_processor", "priority"=4, "ollama_svc_base_url"="http://127.0.0.1:11434/", "model_name"="llama3.1", "overwrite"=true}
+ , {"enabled"=true, "name"="mod_chatgpt", "type"="data_processor", "priority"=5, "svc_url"="http://api.chatgpt.com/batch", "model_name"="chatgpt_4o_mini"}
+ , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=6, "host_port"="https://127.0.0.1:3839", "username"="solr"}
 ]
 
 ## end of file ##

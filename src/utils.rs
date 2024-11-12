@@ -132,35 +132,6 @@ pub(crate) fn init_logging(config: &Config){
             println!("Could not start logging {}", e);
         }
     }
-    match config.get_string("pid_file"){
-        Ok(pidfile_name) =>{
-            //get process id
-            let pid = std::process::id();
-            // check file exists
-            let file_exists = std::path::Path::new(&pidfile_name).exists();
-            // write pid if it does not exist
-            if file_exists==false {
-                match std::fs::File::create(&pidfile_name) {
-                    Ok(output) => {
-                        match write!(&output, "{:?}", pid) {
-                            Ok(_res) => info!("Initialised PID file: {:?}, with process id={}", pidfile_name, pid),
-                            Err(err) => panic!("Could not write to PID file: {:?}, error: {}", pidfile_name, err)
-                        }
-                    }
-                    Err(e) => {
-                        panic!("Cannot initialise PID file: {:?}, error: {}", pidfile_name, e);
-                    }
-                }
-            }
-            else{
-                // throw panic if it exists
-                panic!("Cannot initialise application since the PID file {:?} already exists", pidfile_name);
-            }
-        }
-        Err(e) => {
-            println!("Could not init PID: {}", e);
-        }
-    }
 }
 
 pub(crate) fn init_pid_file(config: &Config){

@@ -1,6 +1,6 @@
 [package]
 name = "newslookout"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["Sandeep Singh Sandhu"]
 description = "A web scraping platform built for news scanning, powered by Rust"

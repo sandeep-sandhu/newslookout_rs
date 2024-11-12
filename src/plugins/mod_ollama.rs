@@ -11,8 +11,8 @@ use crate::{document, network};
 use crate::network::{http_post_json_ollama, make_ollama_http_client};
 use crate::utils::{clean_text, get_network_params, get_plugin_config, get_text_from_element, to_local_datetime};
 
-pub(crate) const PLUGIN_NAME: &str = "mod_ollama";
-const PUBLISHER_NAME: &str = "LLM Processing via Ollama Service";
+pub const PLUGIN_NAME: &str = "mod_ollama";
+pub const PUBLISHER_NAME: &str = "LLM Processing via Ollama Service";
 
 
 /// Process documents received on channel rx and,
@@ -90,7 +90,7 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
     info!("{}: Completed processing all data.", PLUGIN_NAME);
 }
 
-fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model_name: &str, ollama_svc_base_url: &str, overwrite: bool) -> document::Document{
+pub fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model_name: &str, ollama_svc_base_url: &str, overwrite: bool) -> document::Document{
 
     let loopiters = raw_doc.text_parts.len() as i32;
     info!("{}: Starting to process {} parts of document - '{}'", PLUGIN_NAME, loopiters, raw_doc.title);
@@ -172,31 +172,31 @@ fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model_nam
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub(crate) struct OllamaPayload {
-    model: String,
-    taskID: usize,
-    keep_alive: String,
-    options: HashMap<String, usize>, //"temperature": 0, "num_predict": 8192, "num_ctx": 8192,
-    prompt: String,
-    stream: bool,
+pub struct OllamaPayload {
+    pub model: String,
+    pub taskID: usize,
+    pub keep_alive: String,
+    pub options: HashMap<String, usize>, //"temperature": 0, "num_predict": 8192, "num_ctx": 8192,
+    pub prompt: String,
+    pub stream: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub(crate) struct OllamaResponse{
-    pub(crate) model: String,
-    pub(crate) created_at: String,
-    pub(crate) response: String,
-    pub(crate) done: bool,
-    pub(crate) context: Vec<usize>,
-    pub(crate) total_duration: usize,
-    pub(crate) load_duration: usize,
-    pub(crate) prompt_eval_count: usize,
-    pub(crate) prompt_eval_duration: usize,
-    pub(crate) eval_count: usize,
-    pub(crate) eval_duration: usize,
+pub struct OllamaResponse{
+    pub model: String,
+    pub created_at: String,
+    pub response: String,
+    pub done: bool,
+    pub context: Vec<usize>,
+    pub total_duration: usize,
+    pub load_duration: usize,
+    pub prompt_eval_count: usize,
+    pub prompt_eval_duration: usize,
+    pub eval_count: usize,
+    pub eval_duration: usize,
 }
 
-fn prepare_payload(prompt: String, model: &str, num_context: usize, max_tok_gen: usize, temperature: usize) -> OllamaPayload {
+pub fn prepare_payload(prompt: String, model: &str, num_context: usize, max_tok_gen: usize, temperature: usize) -> OllamaPayload {
     // put the parameters into the structure
     let json_payload = OllamaPayload {
         model: model.to_string(),
@@ -210,14 +210,14 @@ fn prepare_payload(prompt: String, model: &str, num_context: usize, max_tok_gen:
 }
 
 
-fn prepare_prompt(input_text: &str, system_context: &str, user_context: &str) -> String {
+pub fn prepare_llama_prompt(input_text: &str, system_context: &str, user_context: &str) -> String {
     let mut prompt = format!("<|begin_of_text|><|start_header_id|>system<|end_header_id|>{}<|eot_id|><|start_header_id|>user<|end_header_id|>{}\n\n{}<|eot_id|> <|start_header_id|>assistant<|end_header_id|>", system_context, user_context, input_text);
     return prompt;
 }
 
-fn generate_llm_response(ollama_client: &Client, model_name: &str, input_text: &str, system_context: &str, user_context: &str, service_host_port: &str) -> String {
+pub fn generate_llm_response(ollama_client: &Client, model_name: &str, input_text: &str, system_context: &str, user_context: &str, service_host_port: &str) -> String {
     // prepare prompt
-    let prompt = prepare_prompt(input_text, system_context, user_context);
+    let prompt = prepare_llama_prompt(input_text, system_context, user_context);
     debug!("Calling ollama service with prompt: \n{}", prompt);
     let json_payload = prepare_payload(prompt, model_name, 8192, 8192, 0);
     debug!("{:?}", json_payload);

@@ -25,7 +25,7 @@
 //!    println!("Loading configuration from file: {}", config_file);<br/>
 //!    let app_config: config::Config = newslookout::utils::read_config(config_file);<br/>
 //!<br/>
-//!    let docs_retrieved: Vec<newslookout::document::DocInfo> = newslookout::run_app(app_config);<br/>
+//!    let docs_retrieved: Vec &lt; newslookout::document::DocInfo &gt; = newslookout::run_app(app_config);<br/>
 //!    // use this collection of retrieved documents information for any further custom processing<br/>
 //! }<br/>
 //! </tt>
@@ -34,7 +34,6 @@
 use std::env;
 use crate::document::DocInfo;
 
-mod document;
 pub mod plugins {
     pub(crate) mod mod_en_in_rbi;
     pub(crate) mod mod_en_in_business_standard;
@@ -51,9 +50,11 @@ pub mod plugins {
 
 pub mod network;
 pub mod utils;
+pub mod document;
+
 mod queue;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 

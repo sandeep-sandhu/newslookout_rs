@@ -30,7 +30,7 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
 
-    let mut model_name: String = String::from("llama3_1_8b");
+    let mut model_name: String = String::from("llama3.1");
     match get_plugin_config(&app_config, PLUGIN_NAME, "model_name"){
         Some(param_val_str) => {
             model_name =param_val_str;
@@ -40,7 +40,6 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
     let mut ollama_svc_base_url: String = String::from("http://127.0.0.1/");
     match get_plugin_config(&app_config, PLUGIN_NAME, "ollama_svc_base_url"){
         Some(param_val_str) => {
-            // prepare full url of the form - http://127.0.0.1/api/generate
             ollama_svc_base_url = format!("{}api/generate", param_val_str);
         }, None => {}
     };
@@ -52,11 +51,30 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
                 Result::Ok(param_bool) => overwrite = param_bool,
                 Err(e) => error!("When parsing parameter 'overwrite' as boolean value: {}", e)
             }
-        }, None => error!("Could not get parameter 'overwrite'")
+        }, None => error!("Could not get parameter 'overwrite', using default as false")
+    };
+
+    let mut temperature: f64 = 0.0;
+    match get_plugin_config(&app_config, PLUGIN_NAME, "temperature"){
+        Some(param_val_str) => {
+            match param_val_str.trim().parse(){
+                Result::Ok(param_float) => temperature = param_float,
+                Err(e) => error!("When parsing parameter 'temperature' as float value: {}", e)
+            }
+        }, None => error!("Could not get parameter 'temperature', using default value of: {}", temperature)
+    };
+
+    let mut fetch_timeout: u64 = 150;
+    match get_plugin_config(&app_config, PLUGIN_NAME, "fetch_timeout"){
+        Some(param_val_str) => {
+            match param_val_str.trim().parse(){
+                Result::Ok(param_int) => fetch_timeout = param_int,
+                Err(e) => error!("When parsing parameter 'fetch_timeout' as integer value: {}", e)
+            }
+        }, None => error!("Could not get parameter 'fetch_timeout', using default value of: {}", fetch_timeout)
     };
 
     let connect_timeout: u64 = 60;
-    let fetch_timeout: u64 = 600;
     let ollama_client = make_ollama_http_client(connect_timeout, fetch_timeout);
 
     for doc in rx {

@@ -26,15 +26,14 @@
 
 # this section lists the file and directory locations
 
-# The configuration directory is specified relative to the prefix director
-# However, an absolute path could also be given:
+# The configuration directory is specified here:
 conf_dir ="conf"
 
-# The data_dir specifies the name of the data directory where the data files will be saved:
+# The data_dir specifies the name of the directory where the data files will be saved:
 #data_dir =  "/media/shared/datasets/newslookout_rs_data"
 data_dir =  "data/files"
 
-# the master data files will be stored in this folder
+# the master data files will be stored in this folder (e.g. those datasets that are appended daily)
 master_data_dir = "data/master_data"
 
 models_dir =  "models"
@@ -51,7 +50,7 @@ pid_file = "logs/newslookout.pid"
 #completed_urls_datafile = "/media/shared/newslookout_urls.db"
 completed_urls_datafile = "data/newslookout_urls.db"
 
-cookie_file="/var/newslookout/cookies.txt"
+cookie_file="data/cookies.txt"
 
 # levels of recursion to follow links for identifying news articles within websites
 # min value is 1, max is 4, any other values do not have any effect
@@ -70,12 +69,6 @@ retry_count = 3
 # fixed time is added to the random time to determine the total wait time
 # between two web fetches to the same URL 
 retry_wait_fixed_sec = 3
-
-# minimum number of seconds to wait when calculating the random wait time
-retry_wait_rand_min_sec = 2
-
-# maximum number of seconds to wait when calculating the random wait time
-retry_wait_rand_max_sec = 5
 
 # should raw html be saved as compressed bzipped files?
 save_html=true
@@ -118,7 +111,7 @@ plugins = [
  , {"enabled"=false, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=false, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "maxpages"=50, "items_per_page"=5}
- , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "load_pdf_files"=false}
  # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
  , {"enabled"=true, "name"="mod_dataprep", "type"="data_processor", "priority"=1}
@@ -133,9 +126,12 @@ plugins = [
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
  , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=3, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=true, "name"="mod_ollama", "type"="data_processor", "priority"=4, "ollama_svc_base_url"="http://127.0.0.1:11434/", "model_name"="llama3.1", "overwrite"=true}
- , {"enabled"=true, "name"="mod_chatgpt", "type"="data_processor", "priority"=5, "svc_url"="http://api.chatgpt.com/batch", "model_name"="chatgpt_4o_mini"}
- , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=6, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=true, "name"="mod_ollama", "type"="data_processor", "priority"=4, "ollama_svc_base_url"="http://127.0.0.1:11434/", "model_name"="llama3.1", "overwrite"=true, "fetch_timeout"=300, "temperature"=0.0}
+ , {"enabled"=true, "name"="mod_chatgpt", "type"="data_processor", "priority"=5, "svc_url"="https://api.openai.com/v1/", "model_name"="gpt-4o-mini", "batch_api"=false, "ORG_ID"="", "PROJECT_ID"="", "temperature"=0.0}
+ , {"enabled"=true, "name"="mod_gemini", "type"="data_processor", "priority"=6, "svc_url"="https://generativelanguage.googleapis.com/v1beta/models/", "model_name"="gemini-1.0-pro", "temperature"=0.0}
+ , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=false, "name"="mod_save_to_disk", "type"="data_processor", "priority"=8, "file_type"="json"}
+
 ]
 
 ## end of file ##

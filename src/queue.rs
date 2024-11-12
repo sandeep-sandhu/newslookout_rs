@@ -31,9 +31,9 @@ use crate::plugins::{
     mod_ollama,
     mod_solrsubmit};
 use crate::document::{DocInfo, Document};
-use crate::utils::extract_plugin_params;
+use crate::utils::{extract_plugin_params, save_to_disk};
 
-pub fn start_pipeline(config: config::Config) -> usize{
+pub fn start_pipeline(config: config::Config) -> Vec<DocInfo> {
 
     let (retrieve_thread_tx, data_proc_pipeline_rx) = mpsc::channel();
     let (data_proc_pipeline_tx, processed_data_rx) = mpsc::channel();
@@ -67,52 +67,7 @@ pub fn start_pipeline(config: config::Config) -> usize{
     if utils::insert_urls_info_to_database(&config, &all_docs_processed) < all_docs_processed.len() as u64 {
         error!("Could not write all of the retrieved urls into database table.");
     }
-    return all_docs_processed.len();
-}
-
-fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInfo {
-
-    debug!("Writing document from url: {:?}", received.url);
-    let mut docinfo_for_sql = DocInfo{
-        plugin_name: received.module.clone(),
-        url: received.url.clone(),
-        pdf_url: received.pdf_url.clone(),
-        title: received.title.clone(),
-        unique_id: received.unique_id.clone(),
-        publish_date_ms: received.publish_date_ms,
-        filename: received.filename.clone(),
-        section_name: received.section_name.clone(),
-    };
-
-    let json_filename = utils::make_unique_filename(&received, "json");
-    debug!("Writing document to file: {}", json_filename);
-    // make full path by joining folder to unique filename
-    let json_file_path = Path::new(data_folder_name.as_str()).join(&json_filename);
-    received.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
-
-    // serialize json to string
-    match serde_json::to_string_pretty(&received){
-        Ok(json_data) => {
-            // persist to json
-            match File::create(&json_file_path){
-                Ok(mut file) => {
-                    match file.write_all(json_data.as_bytes()) {
-                        Ok(_write_res) => {
-                            debug!("Wrote document from {}, titled '{}' to file: {:?}", received.url, received.title, json_file_path);
-                            docinfo_for_sql.filename = received.filename.clone();
-                            return docinfo_for_sql;
-                        },
-                        Err(write_err) => error!("When writing file to disk: {}", write_err)
-                    }
-                },
-                Err(file_err)=> {
-                    error!("When writing document to json file: {}", file_err);
-                }
-            }
-        },
-        Err(serderr) => error!("When serialising document to JSON text: {}", serderr)
-    }
-    return docinfo_for_sql;
+    return all_docs_processed;
 }
 
 /// Start the data retrieval plugins in pipeline which starts them in parallel in multiple threads

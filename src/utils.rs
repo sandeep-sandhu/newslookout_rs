@@ -12,7 +12,7 @@ use std::path;
 use std::fs::File;
 use std::ops::Add;
 use std::{any::Any, env};
-
+use std::path::Path;
 use log::{debug, error, info, LevelFilter, warn};
 use log4rs::append::file::FileAppender;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
@@ -32,6 +32,7 @@ use scraper::{ElementRef};
 use uuid::Uuid;
 
 use crate::{document, utils};
+use crate::document::{DocInfo, Document};
 
 pub fn read_config(cfg_file: String) -> Config{
     let mut cfg_builder = Config:: builder();
@@ -60,7 +61,7 @@ pub fn read_config(cfg_file: String) -> Config{
 ///
 /// returns: ()
 ///
-pub(crate) fn init_application(config: &Config){
+pub(crate) fn init_logging(config: &Config){
     // setup logging:
     match config.get_string("log_file"){
         Ok(logfile) =>{
@@ -162,6 +163,39 @@ pub(crate) fn init_application(config: &Config){
     }
 }
 
+pub(crate) fn init_pid_file(config: &Config){
+    // setup PID file:
+    match config.get_string("pid_file"){
+        Ok(pidfile_name) =>{
+            //get process id
+            let pid = std::process::id();
+            // check file exists
+            let file_exists = std::path::Path::new(&pidfile_name).exists();
+            // write pid if it does not exist
+            if file_exists==false {
+                match std::fs::File::create(&pidfile_name) {
+                    Ok(output) => {
+                        match write!(&output, "{:?}", pid) {
+                            Ok(_res) => info!("Initialised PID file: {:?}, with process id={}", pidfile_name, pid),
+                            Err(err) => panic!("Could not write to PID file: {:?}, error: {}", pidfile_name, err)
+                        }
+                    }
+                    Err(e) => {
+                        panic!("Cannot initialise PID file: {:?}, error: {}", pidfile_name, e);
+                    }
+                }
+            }
+            else{
+                // throw panic if it exists
+                panic!("Cannot initialise application since the PID file {:?} already exists", pidfile_name);
+            }
+        }
+        Err(e) => {
+            println!("Could not init PID: {}", e);
+        }
+    }
+}
+
 /// Shuts down the application by performing any cleanup required.
 ///
 /// # Arguments
@@ -170,7 +204,7 @@ pub(crate) fn init_application(config: &Config){
 ///
 /// returns: ()
 ///
-pub(crate) fn shutdown_application(config: &Config){
+pub(crate) fn cleanup_pid_file(config: &Config){
     match config.get_string("pid_file"){
         Ok(pidfile) =>{
             match std::fs::remove_file(&pidfile) {
@@ -187,6 +221,51 @@ pub(crate) fn shutdown_application(config: &Config){
         }
     }
     log::info!("Shutting down the application.");
+}
+
+pub fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInfo {
+
+    debug!("Writing document from url: {:?}", received.url);
+    let mut docinfo_for_sql = DocInfo{
+        plugin_name: received.module.clone(),
+        url: received.url.clone(),
+        pdf_url: received.pdf_url.clone(),
+        title: received.title.clone(),
+        unique_id: received.unique_id.clone(),
+        publish_date_ms: received.publish_date_ms,
+        filename: received.filename.clone(),
+        section_name: received.section_name.clone(),
+    };
+
+    let json_filename = utils::make_unique_filename(&received, "json");
+    debug!("Writing document to file: {}", json_filename);
+    // make full path by joining folder to unique filename
+    let json_file_path = Path::new(data_folder_name.as_str()).join(&json_filename);
+    received.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
+
+    // serialize json to string
+    match serde_json::to_string_pretty(&received){
+        Ok(json_data) => {
+            // persist to json
+            match File::create(&json_file_path){
+                Ok(mut file) => {
+                    match file.write_all(json_data.as_bytes()) {
+                        Ok(_write_res) => {
+                            debug!("Wrote document from {}, titled '{}' to file: {:?}", received.url, received.title, json_file_path);
+                            docinfo_for_sql.filename = received.filename.clone();
+                            return docinfo_for_sql;
+                        },
+                        Err(write_err) => error!("When writing file to disk: {}", write_err)
+                    }
+                },
+                Err(file_err)=> {
+                    error!("When writing document to json file: {}", file_err);
+                }
+            }
+        },
+        Err(serderr) => error!("When serialising document to JSON text: {}", serderr)
+    }
+    return docinfo_for_sql;
 }
 
 /// Removes any unnecessary whitespaces from the string and returns the cleaned string

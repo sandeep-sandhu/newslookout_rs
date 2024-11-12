@@ -19,7 +19,7 @@ use {
 };
 
 use crate::{document, network};
-use crate::document::{Document, TextPart};
+use crate::document::{Document};
 use crate::network::make_http_client;
 use crate::utils::{extract_text_from_html, split_by_word_count, clean_text, get_data_folder, get_network_params, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename};
 
@@ -221,10 +221,13 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
             source_author: PUBLISHER_NAME.to_string(),
             recipients: "".to_string(),
             publish_date_ms: Utc::now().timestamp(),
+            publish_date: "".to_string(),
             links_inward: Vec::new(),
             links_outwards: Vec::new(),
             text_parts: Vec::new(),
+            classification: HashMap::new(),
             filename: "".to_string(),
+            generated_content: HashMap::new(),
         };
 
         let mut date_str = String::from("");
@@ -259,6 +262,7 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
             match NaiveDate::parse_from_str(date_str.as_str(), "%b %d, %Y"){
                 Ok(naive_date) => {
                     this_new_doc.publish_date_ms = to_local_datetime(naive_date).timestamp();
+                    this_new_doc.publish_date = naive_date.format("%Y-%m-%d").to_string();
                 },
                 Err(date_err) => {
                     error!("Could not parse date '{}', error: {}", date_str.as_str(), date_err)

@@ -27,7 +27,9 @@ const PUBLISHER_NAME: &str = "Read documents from disk";
 const STARTER_URLS: [(&str, &str); 0] = [];
 
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
+
     info!("{}: Starting worker", PLUGIN_NAME);
+    // TODO: get parameter load_pdf_files
 
     match get_data_folder(&app_config).to_str(){
         Some(data_folder_name) => {

@@ -1,6 +1,7 @@
 // file: document.rs
 
 use std::collections::HashMap;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -45,43 +46,46 @@ pub struct Document {
     pub generated_content: HashMap<String, String>,
 }
 
+pub fn new_document() -> Document {
+    let curr_timestamp = Utc::now().timestamp();
+    // prepare empty document:
+    return Document{
+        module: "".to_string(),
+        plugin_name: "".to_string(),
+        section_name: "".to_string(),
+        url: "".to_string(),
+        pdf_url: "".to_string(),
+        html_content: "".to_string(),
+        title: "".to_string(),
+        unique_id: "".to_string(),
+        referrer_text: "".to_string(),
+        text: "".to_string(),
+        source_author: "".to_string(),
+        recipients: "".to_string(),
+        publish_date_ms: curr_timestamp,
+        publish_date: "1970-01-01".to_string(),
+        links_inward: Vec::new(),
+        links_outwards: Vec::new(),
+        text_parts: Vec::new(),
+        classification: HashMap::new(),
+        filename: "".to_string(),
+        generated_content: HashMap::new(),
+    };
+}
+
+
 // Description of Tests:
 // These unit tests verify that the serialization and deserialization of the Document work
 // properly using serde_json.
 #[cfg(test)]
 mod tests {
 
-    use chrono::Utc;
     use super::*;
 
     #[test]
     fn test_data_structures() {
-        let nowdatetime = Utc::now();
-
-        let data = Document {
-            module: "Some module".to_string(),
-            plugin_name: "Some Plugin Name".to_string(),
-            section_name: "some section".to_string(),
-            url: "some url".to_string(),
-            pdf_url: "some pdf url".to_string(),
-            html_content: "some html".to_string(),
-            title: "some title".to_string(),
-            unique_id: "Some unique id".to_string(),
-            referrer_text: "Some referrer".to_string(),
-            text: "Some text content".to_string(),
-            source_author: "Some author".to_string(),
-            recipients: "Some recepients".to_string(),
-            publish_date_ms: nowdatetime.timestamp(),
-            publish_date: "1970-01-01".to_string(),
-            links_inward: vec![],
-            links_outwards: vec![],
-            text_parts: vec![ HashMap::from( [("id".to_string(),"1".to_string()), ("text".to_string(), "blank".to_string())] ) ],
-            classification: HashMap::new(),
-            filename: "".to_string(),
-            generated_content: HashMap::new(),
-        };
-
-        // let naive_date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").unwrap();
+        let mut data = new_document();
+        data.text_parts = vec![ HashMap::from( [("id".to_string(),"1".to_string()), ("text".to_string(), "blank".to_string())] ) ];
 
         // Verify that data can be serialized and deserialized
         let serialized = serde_json::to_string(&data).unwrap();

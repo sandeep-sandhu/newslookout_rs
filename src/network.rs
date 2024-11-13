@@ -12,30 +12,54 @@ use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CONTENT_TYPE, InvalidHeaderValue};
 
 
-pub fn make_http_client(fetch_timeout: u64, user_agent: &str, base_url: String) -> reqwest::blocking::Client {
+pub fn make_http_client(fetch_timeout: u64, user_agent: &str, base_url: String, proxy_url: Option<String>) -> reqwest::blocking::Client {
+
     let pool_idle_timeout: u64 = 90;
     let pool_max_idle_connections: usize = 1;
-    //let base_url = "https://website.rbi.org.in/";
+
     // add headers
     let mut headers = HeaderMap::new();
     match HeaderValue::from_str(base_url.as_str()) {
         Ok(header_referrer) => headers.insert(reqwest::header::REFERER, header_referrer),
         Err(e) => headers.insert(reqwest::header::REFERER, HeaderValue::from_static("https://www.google.com/"))
     };
+    // add do not track:
     headers.insert(reqwest::header::DNT, HeaderValue::from(1));
     headers.insert(reqwest::header::CONNECTION, HeaderValue::from_static("keep-alive"));
-    let client: reqwest::blocking::Client = reqwest::blocking::Client::builder()
+
+    let client_bld: reqwest::blocking::ClientBuilder= reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(fetch_timeout))
         .user_agent(user_agent.to_string())
         .default_headers(headers)
         .gzip(true)
         .pool_idle_timeout(Duration::from_secs(pool_idle_timeout))
-        .pool_max_idle_per_host(pool_max_idle_connections)
-        .build().expect("Require valid parameters for building HTTP client");
-    return client;
+        .pool_max_idle_per_host(pool_max_idle_connections);
+
+    if proxy_url.is_some() {
+        if let Some(proxy_url_str) = proxy_url {
+            // if proxy is configured, then add proxy with https rule:
+            match reqwest::Proxy::https(proxy_url_str.as_str()) {
+                Ok(proxy_obj) => {
+                    let client: reqwest::blocking::Client = client_bld
+                        .proxy(proxy_obj)
+                        .build()
+                        .expect("Require valid parameters for building HTTP client");
+                    return client;
+                }
+                Err(e) => {
+                    error!("Unable to use proxy, Error when setting the proxy server: {}", e);
+                }
+            }
+        }
+    }
+    let client_no_proxy: reqwest::blocking::Client = client_bld
+        .build()
+        .expect("Require valid parameters for building HTTP client");
+    return client_no_proxy;
 }
 
-pub fn make_ollama_http_client(connect_timeout: u64, fetch_timeout: u64) -> reqwest::blocking::Client {
+
+pub fn build_llm_api_client(connect_timeout: u64, fetch_timeout: u64) -> reqwest::blocking::Client {
     let pool_idle_timeout: u64 = (connect_timeout + fetch_timeout) * 5;
     let pool_max_idle_connections: usize = 1;
     // add headers
@@ -53,45 +77,6 @@ pub fn make_ollama_http_client(connect_timeout: u64, fetch_timeout: u64) -> reqw
     return client;
 }
 
-pub fn http_post_json_ollama(service_url: &str, client: &reqwest::blocking::Client, json_payload: crate::plugins::mod_ollama::OllamaPayload) -> crate::plugins::mod_ollama::OllamaResponse{
-    // add json payload to body
-    match client.post(service_url)
-        .json(&json_payload)
-        .send() {
-        Result::Ok(resp) => {
-            match resp.json(){
-                Result::Ok( json ) => {
-                    return json;
-                },
-                Err(e) => {
-                    error!("When retrieving json from response: {}", e);
-                    if let Some(err_source) = e.source(){
-                        error!("Caused by: {}", err_source);
-                    }
-                }
-            }
-        },
-        Err(e) => {
-            error!("When posting json payload to service: {}", e);
-            if let Some(err_source) = e.source(){
-                error!("Caused by: {}", err_source);
-            }
-        }
-    }
-    return crate::plugins::mod_ollama::OllamaResponse{
-        model: String::from(""),
-        created_at: String::from(""),
-        response: String::from(""),
-        done: false,
-        context: vec![],
-        total_duration: 0,
-        load_duration: 0,
-        prompt_eval_count: 0,
-        prompt_eval_duration: 0,
-        eval_count: 0,
-        eval_duration: 0,
-    };
-}
 
 pub fn http_get_binary(website_url: &String, client: &reqwest::blocking::Client) -> bytes::Bytes {
     let retry_times = 3;

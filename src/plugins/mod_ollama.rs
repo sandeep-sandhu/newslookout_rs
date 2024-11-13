@@ -3,13 +3,15 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
 use config::Config;
 use log::{error, warn, info, debug};
 use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use crate::{document, network};
-use crate::network::{http_post_json_ollama, make_ollama_http_client};
-use crate::utils::{clean_text, get_network_params, get_plugin_config, get_text_from_element, to_local_datetime};
+use crate::network::{build_llm_api_client};
+use crate::utils::{clean_text, get_contexts_from_config, get_network_params, get_plugin_config, get_text_from_element, to_local_datetime};
 
 pub const PLUGIN_NAME: &str = "mod_ollama";
 pub const PUBLISHER_NAME: &str = "LLM Processing via Ollama Service";
@@ -28,7 +30,7 @@ pub const PUBLISHER_NAME: &str = "LLM Processing via Ollama Service";
 ///
 pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config){
 
-    info!("{}: Getting configuration.", PLUGIN_NAME);
+    info!("{}: Getting configuration specific to the module.", PLUGIN_NAME);
 
     let mut model_name: String = String::from("llama3.1");
     match get_plugin_config(&app_config, PLUGIN_NAME, "model_name"){
@@ -74,12 +76,29 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
         }, None => error!("Could not get parameter 'fetch_timeout', using default value of: {}", fetch_timeout)
     };
 
-    let connect_timeout: u64 = 60;
-    let ollama_client = make_ollama_http_client(connect_timeout, fetch_timeout);
+    // get contexts from config file:
+    let (summary_part_context, insights_part_context, summary_exec_context, system_context) = get_contexts_from_config(&app_config);
 
+    // set a low connect timeout:
+    let connect_timeout: u64 = 15;
+    // prepare the http client for the REST service
+    let ollama_client = build_llm_api_client(connect_timeout, fetch_timeout);
+
+    // process each document received and return back to next handler:
     for doc in rx {
         info!("Saving processed document titled - {}", doc.title);
-        let updated_doc:document::Document = update_doc(&ollama_client, doc, model_name.as_str(), ollama_svc_base_url.as_str(), overwrite);
+
+        let updated_doc:document::Document = update_doc(
+            &ollama_client,
+            doc,
+            model_name.as_str(),
+            ollama_svc_base_url.as_str(),
+            overwrite,
+            summary_part_context.as_str(),
+            insights_part_context.as_str(),
+            summary_exec_context.as_str(),
+            system_context.as_str()
+        );
         //for each document received in channel queue
         match tx.send(updated_doc) {
             Result::Ok(_) => {},
@@ -90,35 +109,31 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
     info!("{}: Completed processing all data.", PLUGIN_NAME);
 }
 
-pub fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model_name: &str, ollama_svc_base_url: &str, overwrite: bool) -> document::Document{
+pub fn prepare_gemma_prompt(system_context: &str, user_context: &str, input_text: &str) -> String{
+    return format!("<start_of_turn>user\
+        {}\
+        \
+        {}<end_of_turn><start_of_turn>model", user_context, input_text).to_string();
+}
+
+pub fn prepare_llama_prompt(system_context: &str, user_context: &str, input_text: &str) -> String {
+    return format!("<|begin_of_text|><|start_header_id|>system<|end_header_id|>{}\
+        <|eot_id|><|start_header_id|>user<|end_header_id|>{}\
+        \n\n{}<|eot_id|> <|start_header_id|>assistant<|end_header_id|>", system_context, user_context, input_text).to_string();
+}
+
+
+pub fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model_name: &str, ollama_svc_base_url: &str, overwrite: bool, summary_part_context: &str, insights_part_context: &str, summary_exec_context: &str, system_context: &str) -> document::Document{
 
     let loopiters = raw_doc.text_parts.len() as i32;
     info!("{}: Starting to process {} parts of document - '{}'", PLUGIN_NAME, loopiters, raw_doc.title);
-
-    let max_word_limit: usize = 200;
-    let summary_system_context = "You are an expert in generating accurate summaries of financial news.";
-    let summary_user_context = format!("Read the following text titled '{}' published by {} and summarize it in less than {} words.
-        Return in bullet format with one sentence heading giving an overview of the topic in bullets.
-        Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.
-        You MUST use the same terms and abbreviations from the text while preparing the summary.
-        NO other text MUST be included.\n", raw_doc.title, raw_doc.plugin_name, max_word_limit);
-
-    let insights_system_context = "You are an expert in understanding and analysing financial services news and events.";
-    let insights_user_context = format!("Based on the following text from a regulatory notification titled '{}', describe each action that a bank or lender or financial institution should take to manage risks, increase revenues, reduce costs or improve customer service.
-            Walk me through this text in manageable parts step by step, analyzing and extracting and merging actions as we go.
-            Answer back the action in full and complete sentences along with the original text from which it was extracted.
-            Merge similar action items into one.
-            Do not return actions that the regulator {} is planning to take.
-            NO other text MUST be included.
-            You MUST not return implied actions such as - REs shall take necessary steps to ensure compliance with these instructions.
-            Return all actions extracted as a JSON object in this format:
-            ```[{{\"original_text\": \"REs must do...\", \"insight\": \"Regulated Entities must do...\",}}]```
-            TEXT:\n", raw_doc.title, raw_doc.plugin_name);
 
     // pop out each part, process it and push to new vector, replace this updated vector in document
     let mut updated_text_parts:  Vec<HashMap<String, String>> = Vec::new();
     let mut to_generate_summary: bool = true;
     let mut to_generate_insights: bool = true;
+    let mut all_summaries: String = String::new();
+    let mut all_actions: String = String::new();
 
     for i in 0..loopiters {
         match &raw_doc.text_parts.pop(){
@@ -140,9 +155,16 @@ pub fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model
                     }
                 }
                 if to_generate_summary == true{
-                    // call service with payload to generate summary:
-                    let model_summary = generate_llm_response(ollama_client, model_name, text_part, summary_system_context, summary_user_context.as_str(), ollama_svc_base_url);
-                    text_part_map_clone.insert("summary".to_string(), model_summary);
+                    let summary_part_prompt = build_llm_prompt(model_name, system_context, summary_part_context, text_part);
+                    // call service with payload to generate summary of part:
+                    debug!("Calling ollama service with prompt: \n{}", summary_part_prompt);
+                    let json_payload = prepare_payload(summary_part_prompt, model_name, 8192, 8192, 0);
+                    debug!("{:?}", json_payload);
+                    let llm_output = http_post_json_ollama(ollama_svc_base_url, &ollama_client, json_payload);
+                    debug!("Model response:\n{}", llm_output);
+                    all_summaries.push_str("\n");
+                    all_summaries.push_str(llm_output.as_str());
+                    text_part_map_clone.insert("summary".to_string(), llm_output);
                 }
 
                 if let Some(existing_insights) = text_part_map.get("insights") {
@@ -153,8 +175,15 @@ pub fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model
                 }
                 if to_generate_insights == true {
                     // call service with payload to generate insights:
-                    let model_insights = generate_llm_response(ollama_client, model_name, text_part, insights_system_context, insights_user_context.as_str(), ollama_svc_base_url);
-                    text_part_map_clone.insert("insights".to_string(), model_insights);
+                    let insights_part_prompt = build_llm_prompt(model_name, system_context, insights_part_context, text_part);
+                    // call service with payload to generate summary of part:
+                    debug!("Calling ollama service with prompt: \n{}", insights_part_prompt);
+                    let json_payload = prepare_payload(insights_part_prompt, model_name, 8192, 8192, 0);
+                    debug!("{:?}", json_payload);
+                    let llm_output = http_post_json_ollama(ollama_svc_base_url, &ollama_client, json_payload);
+                    debug!("Model response:\n{}", llm_output);
+                    all_actions.push_str(llm_output.as_str());
+                    text_part_map_clone.insert("insights".to_string(), llm_output);
                 }
 
                 // put the updated text part into a new vector
@@ -167,8 +196,41 @@ pub fn update_doc(ollama_client: &Client, mut raw_doc: document::Document, model
     // store it in the document, replacing the previous contents
     raw_doc.text_parts = updated_text_parts;
 
+    // generate the exec summary:
+    let exec_summary_prompt= build_llm_prompt(model_name, system_context, summary_exec_context, all_summaries.as_str());
+    // call service with payload to generate summary of part:
+    debug!("Calling ollama service with prompt: \n{}", exec_summary_prompt);
+    let json_payload = prepare_payload(exec_summary_prompt, model_name, 8192, 8192, 0);
+    debug!("{:?}", json_payload);
+    let exec_summary = http_post_json_ollama(ollama_svc_base_url, &ollama_client, json_payload);
+    debug!("Model response:\n{}", exec_summary);
+    // add to generated_content
+    raw_doc.generated_content.insert("exec_summary".to_string(), exec_summary);
+
+    // generate the actions summary:
+    let actions_summary_prompt= build_llm_prompt(model_name, system_context, summary_exec_context, all_actions.as_str());
+    // call service with payload to generate summary of part:
+    debug!("Calling ollama service with prompt: \n{}", actions_summary_prompt);
+    let json_payload = prepare_payload(actions_summary_prompt, model_name, 8192, 8192, 0);
+    debug!("{:?}", json_payload);
+    let actions_summary = http_post_json_ollama(ollama_svc_base_url, &ollama_client, json_payload);
+    debug!("Model response:\n{}", actions_summary);
+    // add to generated_content
+    raw_doc.generated_content.insert("actions_summary".to_string(), actions_summary);
+
     info!("{}: Processed document titled: '{}' with model {}", PLUGIN_NAME, raw_doc.title, model_name);
     return raw_doc;
+}
+
+fn build_llm_prompt(model_name: &str, system_context: &str, user_context: &str, input_text: &str) -> String {
+    if model_name.contains("llama") {
+        return prepare_llama_prompt(system_context, user_context, input_text);
+    } else if model_name.contains("gemma") {
+        return prepare_gemma_prompt(system_context, user_context, input_text);
+    }
+    else {
+        return format!("{}\n{}\n{}", system_context, user_context, input_text).to_string();
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -210,21 +272,34 @@ pub fn prepare_payload(prompt: String, model: &str, num_context: usize, max_tok_
 }
 
 
-pub fn prepare_llama_prompt(input_text: &str, system_context: &str, user_context: &str) -> String {
-    let mut prompt = format!("<|begin_of_text|><|start_header_id|>system<|end_header_id|>{}<|eot_id|><|start_header_id|>user<|end_header_id|>{}\n\n{}<|eot_id|> <|start_header_id|>assistant<|end_header_id|>", system_context, user_context, input_text);
-    return prompt;
+pub fn http_post_json_ollama(service_url: &str, client: &reqwest::blocking::Client, json_payload: crate::plugins::mod_ollama::OllamaPayload) -> String{
+    // add json payload to body
+    match client.post(service_url)
+        .json(&json_payload)
+        .send() {
+        Result::Ok(resp) => {
+            match resp.json::<OllamaResponse>(){
+                Result::Ok( json ) => {
+                    return json.response;
+                },
+                Err(e) => {
+                    error!("When retrieving json from response: {}", e);
+                    if let Some(err_source) = e.source(){
+                        error!("Caused by: {}", err_source);
+                    }
+                }
+            }
+        },
+        Err(e) => {
+            error!("When posting json payload to service: {}", e);
+            if let Some(err_source) = e.source(){
+                error!("Caused by: {}", err_source);
+            }
+        }
+    }
+    return String::from("");
 }
 
-pub fn generate_llm_response(ollama_client: &Client, model_name: &str, input_text: &str, system_context: &str, user_context: &str, service_host_port: &str) -> String {
-    // prepare prompt
-    let prompt = prepare_llama_prompt(input_text, system_context, user_context);
-    debug!("Calling ollama service with prompt: \n{}", prompt);
-    let json_payload = prepare_payload(prompt, model_name, 8192, 8192, 0);
-    debug!("{:?}", json_payload);
-    let llm_output = http_post_json_ollama(service_host_port, &ollama_client, json_payload);
-    debug!("Model response:\n{}", llm_output.response);
-    return llm_output.response;
-}
 
 #[cfg(test)]
 mod tests {
@@ -232,6 +307,18 @@ mod tests {
 
     #[test]
     fn test_run_worker_thread() {
+        // TODO: implement this
+        assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn test_prepare_payload(){
+        // TODO: implement this
+        assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn test_build_llm_prompt(){
         // TODO: implement this
         assert_eq!(1, 1);
     }

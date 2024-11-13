@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::{document, utils};
 use crate::document::{DocInfo, Document};
+use crate::plugins::mod_ollama::PLUGIN_NAME;
 
 pub fn read_config(cfg_file: String) -> Config{
     let mut cfg_builder = Config:: builder();
@@ -390,9 +391,10 @@ pub fn extract_plugin_params(plugin_map: Map<String, Value>) -> (String, String,
 /// ```
 ///
 /// ```
-pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String) {
+pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String, Option<String>) {
     let mut fetch_timeout_seconds: u64 = 20;
     let mut user_agent:String = String::from("Mozilla");
+    let mut proxy_url:Option<String> = None;
     let retry_times: u64 = 3;
     let wait_time: u64 = 2;
 
@@ -408,6 +410,7 @@ pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String) {
                 ex)
         }
     }
+
     match config_clone.get_string("user_agent") {
         Ok(user_agent_configured) => {
             user_agent.clear();
@@ -417,7 +420,17 @@ pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String) {
             error!("When extracting user agent from config: {:?}", e)
         }
     }
-    return (fetch_timeout_seconds, retry_times, wait_time, user_agent);
+
+    match config_clone.get_string("proxy_server_url") {
+        Ok(proxy_server_url) => {
+            proxy_url = Some(proxy_server_url);
+        },
+        Err(e) => {
+            error!("When extracting proxy_server_url from config: {:?}", e)
+        }
+    }
+
+    return (fetch_timeout_seconds, retry_times, wait_time, user_agent, proxy_url);
 }
 
 pub fn get_data_folder(config: &Config) -> std::path::PathBuf {
@@ -574,15 +587,18 @@ pub fn get_last_n_words(text_str: &str, count_n:usize) -> String {
 }
 
 pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_overlap: usize) -> Vec<String> {
-    let mut text_parts_stage2: Vec<String> = Vec::new();
+
     let mut buffer_wc:usize = 0;
     let mut buffer = String::new();
     let mut overlap_buffer = String::from("");
     let mut overlap_buffer_wc:usize = 0;
     let mut previous_overlap_text = String::from("");
+
     // initial split by double lines:
     let text_parts_stage1 = text.split("\n\n");
-    // merge parts based on word count limit:
+
+    let mut text_parts_stage2: Vec<String> = Vec::new();
+    // merge these split parts based on word count limit:
     for text_block in text_parts_stage1 {
         let this_blocks_word_count:usize = word_count(*&text_block);
         if (buffer_wc + previous_overlap >= max_words_per_split) &
@@ -597,7 +613,7 @@ pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_over
             text_parts_stage2.push(buffer);
             // empty buffer and add current text block to buffer:
             // buffer.clear(); // not required as its implicit
-            // TODO: add overlap_buffer
+            // add overlap_buffer
             if overlap_buffer_wc > 0{
                 buffer = format!("{} {} {}", overlap_buffer, previous_overlap_text, text_block);
                 buffer_wc = overlap_buffer_wc + word_count(previous_overlap_text.as_str()) + this_blocks_word_count;
@@ -615,7 +631,7 @@ pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_over
                 buffer_wc += this_blocks_word_count;
             }else{
                 // for first iteration where buffer_wc = 0
-                // TODO: add overlap_buffer
+                // add overlap_buffer
                 if overlap_buffer_wc > 0 {
                     buffer = format!("{} {} {}", overlap_buffer, previous_overlap_text, text_block);
                     // increment buffer word count:
@@ -637,13 +653,34 @@ pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_over
             }
         };
     }
-    // add remainder into last part:
+    // add remainder into array of text parts:
     if buffer_wc > 0 {
-        text_parts_stage2.push(buffer);
+        // TODO: add remainder into previously added part in vector: text_parts_stage2
+        append_with_last_element(&mut text_parts_stage2, buffer);
+        // add as the last element of array
+        // text_parts_stage2.push(buffer);
     }
+
     return text_parts_stage2;
 }
 
+/// Appends the given string to the last element of a vector of strings.
+///
+/// # Arguments
+///
+/// * `stringvec`: The vector to be appended to.
+/// * `text_to_append`: The text to append to the last element
+///
+/// returns: &mut Vec<String, Global>
+fn append_with_last_element(stringvec: &mut Vec<String>, text_to_append: String) {
+    // append text into previously added part in vector
+    let last_location = stringvec.len();
+    if let Some(lastelem) = stringvec.last(){
+        let replacement = format!("{} {}", lastelem, text_to_append);
+        let _old = std::mem::replace(&mut stringvec[last_location-1], replacement);
+    };
+    //return stringvec;
+}
 
 /// Retrieve the queried parameter from this plugin's configuration
 ///
@@ -654,12 +691,6 @@ pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_over
 /// * `param_key`: The parameter to be queried
 ///
 /// returns: Option<String>
-///
-/// # Examples
-///
-/// ```
-///
-/// ```
 pub fn get_plugin_config(app_config: &Config, plugin_name: &str, param_key: &str) -> Option<String> {
     match app_config.get_array("plugins"){
         Result::Ok(plugins) =>{
@@ -701,13 +732,41 @@ pub fn get_plugin_config(app_config: &Config, plugin_name: &str, param_key: &str
     return None;
 }
 
+pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String, String){
+
+    let mut summary_part_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
+    match app_config.get_string("summary_part_context") {
+        Ok(param_val_str) => summary_part_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'summary_part_context' from config file, using default, error: {}", e)
+    }
+
+    let mut insights_part_context: String = String::from("Read the following text and extract actions from it.\n\nTEXT:\n");
+    match app_config.get_string("insights_part_context") {
+        Ok(param_val_str) => insights_part_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'insights_part_context' from config file, using default, error: {}", e)
+    }
+
+    let mut summary_exec_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
+    match app_config.get_string("summary_exec_context") {
+        Ok(param_val_str) => summary_exec_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'summary_exec_context' from config file, using default, error: {}", e)
+    }
+
+    let mut system_context: String = String::from("You are an expert in analysing news and documents.");
+    match app_config.get_string("system_context") {
+        Ok(param_val_str) => system_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'system_context' from config file, using default, error: {}", e)
+    }
+
+    return (summary_part_context, insights_part_context, summary_exec_context, system_context);
+}
 
 // Description of Tests:
 // These unit tests verify the functions in this module.
 #[cfg(test)]
 mod tests {
     use crate::utils;
-    use crate::utils::get_last_n_words;
+    use crate::utils::{append_with_last_element, get_last_n_words};
 
     #[test]
     fn test_to_local_datetime() {
@@ -768,4 +827,25 @@ mod tests {
         let para2_expected_answer = "The quick brown fox jumped over the 1 lazy dog.";
         assert_eq!(get_last_n_words(para2,12), para2_expected_answer, "Did not get last n words");
     }
+
+    #[test]
+    fn test_append_with_last_element(){
+        let mut example_1_vec = vec![String::from("first"), String::from("second"), String::from("third")];
+        let example_1_toadd = String::from("to append");
+        let example_1_expected = vec![String::from("first"), String::from("second"), String::from("third to append")];
+        append_with_last_element(&mut example_1_vec, example_1_toadd);
+
+        assert_eq!(
+            example_1_vec.last(),
+            example_1_expected.last(),
+            "New text could not be appended correctly to last element."
+        );
+
+        assert_eq!(
+            example_1_vec.len(),
+            example_1_expected.len(),
+            "Vector size increased when appending to last element"
+        );
+    }
+
 }

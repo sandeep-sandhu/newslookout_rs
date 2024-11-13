@@ -83,9 +83,15 @@ pub fn start_retrieval_plugins(config: &Config, tx: Sender<document::Document>) 
     let mut task_run_handles: Vec<JoinHandle<()>> = Vec::new();
 
     info!("Reading the configuration and starting the plugins.");
-    let plugins = config.get_array("plugins").expect("No plugins specified in configuration file!");
+    let mut plugins_configured = Vec::new();
+    match config.get_array("plugins"){
+        Ok(plugins) => plugins_configured = plugins,
+        Err(e) => {
+            error!("No plugins specified in configuration file! {}", e);
+        }
+    }
 
-    for plugin in plugins {
+    for plugin in plugins_configured {
 
         let msg_tx = tx.clone();
         let config_clone= config.clone();
@@ -186,9 +192,16 @@ fn run_data_proc_pipeline(dataproc_docs_output_tx: Sender<document::DocInfo>, da
     }
 
     info!("Data processing pipeline: Reading the configuration and starting the plugins.");
-    let plugins = config.get_array("plugins").expect("No plugins specified in configuration file!");
+    let mut plugins_configured = Vec::new();
+    match config.get_array("plugins"){
+        Ok(plugins) => plugins_configured = plugins,
+        Err(_) => {
+            error!("No plugins specified in configuration file! Unable to start the data processing pipeline.");
+            return;
+        }
+    }
 
-    for plugin in plugins {
+    for plugin in plugins_configured {
         match plugin.into_table() {
             Ok(plugin_map) => {
                 let (plugin_name, plugin_type, plugin_enabled, priority) = extract_plugin_params(plugin_map);

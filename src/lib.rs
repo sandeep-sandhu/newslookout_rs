@@ -53,6 +53,7 @@ pub mod utils;
 pub mod document;
 
 mod queue;
+mod llm;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -92,9 +93,13 @@ pub fn run_app(config: config::Config) -> Vec<DocInfo> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::empty;
+    use crate::run_app;
 
     #[test]
     fn test_1() {
-        assert_eq!(1, 1);
+        let empty_cfg = config::Config::builder().build().unwrap();
+        let docs = run_app(empty_cfg);
+        assert_eq!(docs.len(), 0);
     }
 }

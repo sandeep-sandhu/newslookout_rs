@@ -13,7 +13,7 @@ use chrono::{NaiveDate, Utc};
 use log::{debug, error, info};
 use nom::AsBytes;
 use pdf_extract::extract_text_from_mem;
-
+use rand::Rng;
 use {
     regex::Regex,
 };
@@ -39,8 +39,8 @@ const STARTER_URLS: [(&str,&str); 6] = [
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
-    let (fetch_timeout_seconds, retry_times, wait_time, user_agent) = get_network_params(&app_config);
-    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string());
+    let (fetch_timeout_seconds, retry_times, wait_time, user_agent, proxy_server) = get_network_params(&app_config);
+    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string(), proxy_server);
     let database_filename = get_database_filename(&app_config);
 
     let mut maxitemsinpage = 1;
@@ -121,6 +121,7 @@ fn get_url_listing(
     let mut already_retrieved_urls = get_urls_from_database(database_filename, PLUGIN_NAME);
     info!("For module {}: Got {} previously retrieved urls from table.", PLUGIN_NAME, already_retrieved_urls.len());
 
+    let mut rng = rand::thread_rng();
     let mut counter = 0;
 
     for (starter_url, section_name) in starter_urls {
@@ -132,7 +133,7 @@ fn get_url_listing(
             listing_url_with_args.push_str(&urlargs);
 
             // retrieve content from this url and extract vector of documents, mainly individual urls to retrieve.
-            let content = network::http_get(&listing_url_with_args, &client, retry_times, wait_time);
+            let content = network::http_get(&listing_url_with_args, &client, retry_times, rng.gen_range(wait_time..=(wait_time*3)));
             let mut new_docs = get_docs_from_listing_page(
                 content,
                 &listing_url_with_args,
@@ -191,6 +192,7 @@ fn get_url_listing(
 fn get_docs_from_listing_page(content: String, url_listing_page: &String, section_name: &str, already_retrieved_urls: &mut HashSet<String>, client: &reqwest::blocking::Client, retry_times:u64, wait_time:u64, data_folder: &str) -> Vec<document::Document>{
 
     let mut new_docs: Vec<document::Document> = Vec::new();
+    let mut rng = rand::thread_rng();
 
     let rows_selector = scraper::Selector::parse("div.notifications-row-wrapper>div>div").unwrap();
     let alink_selector = scraper::Selector::parse("a.mtm_list_item_heading").unwrap();
@@ -198,6 +200,7 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
     let doctitle_selector = scraper::Selector::parse("span.mtm_list_item_heading").unwrap();
     let pdf_link_selector = scraper::Selector::parse("a.matomo_download").unwrap();
     let description_snippet_selector = scraper::Selector::parse("div.notifications-description p").unwrap();
+    let whole_page_content_selector = scraper::Selector::parse("div.Notification-content-wrap").unwrap();
 
     // get url list:
     info!("{}: Retrieving url listing from: {}", PLUGIN_NAME, url_listing_page);
@@ -207,29 +210,24 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
     'rows_loop: for row_each in html_document.select(&rows_selector){
 
         // prepare empty document:
-        let mut this_new_doc = document::Document{
-            module: PLUGIN_NAME.parse().unwrap(),
-            plugin_name: PUBLISHER_NAME.parse().unwrap(),
-            section_name: section_name.to_string(),
-            url: "".to_string(),
-            pdf_url: "".to_string(),
-            html_content: "".to_string(),
-            title: "".to_string(),
-            unique_id: "".to_string(),
-            referrer_text: "".to_string(),
-            text: "".to_string(),
-            source_author: PUBLISHER_NAME.to_string(),
-            recipients: "".to_string(),
-            publish_date_ms: Utc::now().timestamp(),
-            publish_date: "".to_string(),
-            links_inward: Vec::new(),
-            links_outwards: Vec::new(),
-            text_parts: Vec::new(),
-            classification: HashMap::new(),
-            filename: "".to_string(),
-            generated_content: HashMap::new(),
-        };
-
+        let mut this_new_doc = document::new_document();
+        // set values
+        this_new_doc.module = PLUGIN_NAME.to_string();
+        this_new_doc.plugin_name = PUBLISHER_NAME.to_string();
+        this_new_doc.section_name = section_name.to_string();
+        this_new_doc.source_author = PUBLISHER_NAME.to_string();
+        // init document with default "others" categories in classification field.
+        this_new_doc.classification = HashMap::from( [
+            ("channel".to_string(),"other".to_string()),
+            ("customer_type".to_string(), "other".to_string()),
+            ("function".to_string(),"other".to_string()),
+            ("market_type".to_string(),"other".to_string()),
+            ("occupation".to_string(),"other".to_string()),
+            ("product_type".to_string(),"other".to_string()),
+            ("risk_type".to_string(),"other".to_string()),
+            // document type:
+            ("doc_type".to_string(),"regulatory-notification".to_string()),
+        ]);
         let mut date_str = String::from("");
 
         let snippet_regex: Regex = Regex::new(
@@ -246,14 +244,22 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
                     info!("{}: Ignoring already retrieved url: {}", PLUGIN_NAME, this_new_doc.url);
                     continue 'rows_loop;
                 }
+
                 // get content:
-                this_new_doc.html_content = network::http_get(&this_new_doc.url, &client, retry_times, wait_time);
+                let html_content = network::http_get(&this_new_doc.url, &client, retry_times, rng.gen_range(wait_time..=(wait_time*3)));
+
+                // from the entire page's html content, save only the div element with class = "Notification-content-wrap"
+                let page_content = scraper::Html::parse_document(html_content.as_str());
+                for page_div in page_content.select(&whole_page_content_selector){
+                    this_new_doc.html_content = page_div.html();
+                }
+
                 debug!("From listing page {}: got the document url {}, and its content of size: {}",
                     url_listing_page, this_new_doc.url, this_new_doc.html_content.len());
 
                 _ = already_retrieved_urls.insert(this_new_doc.url.clone());
-                debug!("count of urls in set after adding url: {}", already_retrieved_urls.len());
 
+                debug!("count of urls in set after adding url: {}", already_retrieved_urls.len());
             }
         }
 
@@ -349,21 +355,53 @@ fn custom_data_processing(doc_to_process: &mut document::Document){
         doc_to_process.text = extract_text_from_html(doc_to_process.html_content.as_str())
     }
 
+    // clean-up recipient text at boundary - dear madam/sir, etc.
+    if doc_to_process.recipients.len() > 2 {
+        // overwrite field with cleaned value
+        doc_to_process.recipients = clean_recepients(doc_to_process.recipients.as_str());
+    }
+    doc_to_process.classification.insert("doc_type".to_string(), get_doc_type(doc_to_process.title.as_str()));
+
     info!("{}: Splitting document '{}' into parts.", PLUGIN_NAME, doc_to_process.title);
     let mut text_part_counter: usize = 1;
-    for text_part in split_by_word_count(doc_to_process.text.as_str(), 400, 15){
+    for text_part in split_by_word_count(doc_to_process.text.as_str(), 600, 15){
         doc_to_process.text_parts.push(HashMap::from([("id".to_string(), text_part_counter.to_string()), ("text".to_string(),text_part)]));
         text_part_counter += 1;
     }
 }
 
+fn get_doc_type(title: &str) -> String {
+    let mut doctype: String = String::from("regulatory-notification");
+    // TODO: mark doctype based on patterns:
+
+    return doctype;
+}
+
+fn clean_recepients(recepients: &str) -> String{
+    let letter_greeting_regex: Regex = Regex::new(
+        r"([Dear ]*Madam[ ]*/[Dear ]*Sir|Dear Sir/|Dear Sir /|Madam / Dear Sir|Madam / Sir|Madam|Sir)"
+    ).unwrap();
+    // locate letter greeting regex, split text on this regex
+    // remove part matching regex and after that
+    for substr in letter_greeting_regex.split(recepients){
+        return substr.trim().to_string();
+    }
+    return recepients.to_string();
+}
+
 #[cfg(test)]
 mod tests {
     use crate::plugins::mod_en_in_rbi;
+    use crate::plugins::mod_en_in_rbi::clean_recepients;
 
     #[test]
-    fn test_run_worker_thread() {
-        // TODO: implement this
-        assert_eq!(1, 1);
+    fn test_clean_recepients() {
+        let example_1 = "All SCBs ALL AIFs   Dear Madam/Sir,";
+        let expected_result_1 = "All SCBs ALL AIFs";
+        assert_eq!(clean_recepients(example_1), expected_result_1, "Recipient text not cleaned correctly");
+        //
+        let example_2 = "All SCBs ALL AIFs and Mad houses   Madam/Sir,";
+        let expected_result_2 = "All SCBs ALL AIFs and Mad houses";
+        assert_eq!(clean_recepients(example_2), expected_result_2, "Recipient text not cleaned correctly");
     }
 }

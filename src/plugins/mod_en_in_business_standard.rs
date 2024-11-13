@@ -27,8 +27,9 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 
     info!("{}: Starting worker", PLUGIN_NAME);
 
-    let (fetch_timeout_seconds, retry_times, wait_time, user_agent) = get_network_params(&app_config);
-    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string());
+    let (fetch_timeout_seconds, retry_times, wait_time, user_agent, proxy_server) = get_network_params(&app_config);
+    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string(), None);
+
     let database_filename = get_database_filename(&app_config);
     let mut already_retrieved_urls = get_urls_from_database(database_filename.as_str(), PLUGIN_NAME);
 

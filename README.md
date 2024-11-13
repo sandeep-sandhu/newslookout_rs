@@ -1,7 +1,7 @@
 
 # Newslookout
 
-[![build](https://github.com/sandeep-sandhu/newslookout_rs/actions/workflows/rust.yml/badge.svg)](https://github.com/sandeep-sandhu/newslookout_rs/actions) ![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/newslookout)
+[![build](https://github.com/sandeep-sandhu/newslookout_rs/actions/workflows/rust.yml/badge.svg)](https://github.com/sandeep-sandhu/newslookout_rs/actions) ![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/newslookout) ![Crate version](https://img.shields.io/crates/v/newslookout.svg)
 
 A light-weight web scraping platform built for scanning and processing news and data. It is a rust port of the python [application of the same name](https://github.com/sandeep-sandhu/NewsLookout).
 

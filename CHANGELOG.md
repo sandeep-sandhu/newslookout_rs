@@ -16,7 +16,10 @@
   - Clean-up recipient text at boundary - dear madam/sir, etc.
   - In RBI module, if last part is less than half of 600, then merge with second-last part.
   - Used common config based prompts for all llms to process documents
-  - Split this into simpler parts and invoke prepare_prompt functions
+  - Split this into simpler parts and invoke prepare_prompt functions 
+  - Refactored the LLM invocation method for processing the document to make it more generic.
+  - Generate and set the unique filename at the time of downloading content
+  - Enable saving partially processed document so that progress is not lost on interruptions or network failures
 
 
 ### Release 0.2.3

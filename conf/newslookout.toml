@@ -129,7 +129,7 @@ plugins = [
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
  , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=3, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=false, "name"="mod_ollama", "type"="data_processor", "priority"=4, "svc_url"="http://10.13.31.109:11434/api/generate", "model_name"="gemma2_27b", "overwrite"=false, "fetch_timeout"=1500, "temperature"=0, "save_intermediate"=true}
+ , {"enabled"=false, "name"="mod_ollama", "type"="data_processor", "priority"=4, "svc_url"="http://127.0.0.1:11434/api/generate", "model_name"="gemma2_27b", "overwrite"=false, "fetch_timeout"=1500, "temperature"=0, "save_intermediate"=true}
  , {"enabled"=false, "name"="mod_chatgpt", "type"="data_processor", "priority"=5, "svc_url"="https://api.openai.com/v1/chat/completions", "model_name"="gpt-4o-mini", "overwrite"=true, "fetch_timeout"=30, "batch_api"=false, "ORG_ID"="", "PROJECT_ID"="", "temperature"=0, "save_intermediate"=true}
  , {"enabled"=true, "name"="mod_gemini", "type"="data_processor", "priority"=6, "svc_url"="https://generativelanguage.googleapis.com/v1beta/models/", "model_name"="gemini-1.0-pro", "overwrite"=false, "fetch_timeout"=30, "temperature"=0, "save_intermediate"=true}
  , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}

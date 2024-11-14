@@ -12,6 +12,7 @@ This library sets up a web scraping pipeline and executes it as follows:
   - Each page's content is populated into a document struct and transmitted by the web retriever module threads to the data processing chain.
   - Simultaneously the data processing modules are started (which form the data processing chain). The retrieved documents are passed to these threads in serial order, based on the priority configured for each data processing module.
   - Each data processing module processes the content and may add or modify the document it receives. It then passes it on to the next data processing thread in order of priority
+  - Popular LLM services are supported by the data processing pipelines such as - **ChatGPT, Google Gemini** and self-hosted LLMs using **Ollama**. The relevant API keys need to be configured as environment variables before using these plugins. 
   - At then end, the document is written to disk as a json file
   - The retrieved URLs are saved to an SQLite database table to serve as a reference so these are not retrieved again in the next run.
   - Adequate wait times are configured during web retrieval to avoid overloading the target website. All events and actions are logged to a central log file. Multiple instances are prevented by writing and checking for a PID file. Although, if desired multiple instances can be launched by running the application with separate config files.
@@ -21,7 +22,7 @@ This package enables building a full-fledged multi-threaded web scraping solutio
 ## Quick Start
 Add this to your Cargo.toml:
 [dependencies]
-newslookout = "0.2.1"
+newslookout = "0.3.0"
 
 ## Usage
 

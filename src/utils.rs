@@ -25,7 +25,7 @@ use log4rs::config::{Appender, Root};
 
 use config::{Config, Environment, FileFormat, Map, Value};
 use config::builder::ConfigBuilder;
-use chrono::{DateTime, Local, MappedLocalTime, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, Local, MappedLocalTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rusqlite::{Row, Rows};
 use rusqlite::params;
 use scraper::{ElementRef};
@@ -53,149 +53,7 @@ pub fn read_config(cfg_file: String) -> Config{
     }
 }
 
-/// Initialise the application by configuring the log file, and
-/// setting the PID file to prevent duplicate instances form running simultaneously.
-///
-/// # Arguments
-///
-/// * `config`: The application's configuration object
-///
-/// returns: ()
-///
-pub(crate) fn init_logging(config: &Config){
-    // setup logging:
-    match config.get_string("log_file"){
-        Ok(logfile) =>{
-
-            //set loglevel parameter from log file:
-            let mut app_loglevel = LevelFilter::Info;
-            match config.get_string("log_level"){
-                Ok(loglevel_str) =>{
-                    match loglevel_str.as_str() {
-                        "DEBUG" => app_loglevel = LevelFilter::Debug,
-                        "INFO" => app_loglevel = LevelFilter::Info,
-                        "WARN" => app_loglevel = LevelFilter::Warn,
-                        "ERROR" => app_loglevel = LevelFilter::Error,
-                        _other => error!("Unknown log level configured in logfile: {}", _other)
-                    }
-                },
-                Err(e) => error!("When getting the log level: {}", e)
-            }
-            println!("Logging to file: {:?}", logfile);
-
-            // read parameter from config file : max_logfile_size
-            let mut size_limit =10 * 1024 * 1024; // 10 MB
-            match config.get_int("max_logfile_size") {
-                Ok(max_logfile_size) => size_limit = max_logfile_size,
-                Err(e) => error!("When reading max logfile size: {}", e)
-            }
-            // TODO: implement log rotation
-            // logfile.push_str("{}");
-            // let window_size = 10;
-            // let fixed_window_roller =
-            //     FixedWindowRoller::builder().build(logfile.as_str(), window_size).unwrap();
-            // let size_trigger = SizeTrigger::new(size_limit);
-            // let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
-            // let config = log4rs::config::Config::builder().appender(
-            //         Appender::builder()
-            //             .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
-            //             .build(
-            //                 "logfile",
-            //                 Box::new(
-            //                     RollingFileAppender::builder()
-            //                         .encoder(Box::new(PatternEncoder::new("{d} {l}::{m}{n}")))
-            //                         .build(logfile, Box::new(compound_policy)),
-            //                 ),
-            //             ),
-            //     )
-            //     .build(
-            //         Root::builder()
-            //             .appender("logfile")
-            //             .build(LevelFilter::Info),
-            //     )?;
-
-            let logfile = FileAppender::builder()
-                .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)(local)} {i} [{l}] - {m}{n}")))
-                .build(logfile)
-                .expect("Cound not init log file appender.");
-
-            let logconfig = log4rs::config::Config::builder()
-                .appender(Appender::builder().build("logfile", Box::new(logfile)))
-                .build(Root::builder()
-                    .appender("logfile")
-                    .build(app_loglevel))
-                .expect("Cound not build a logging config.");
-
-            log4rs::init_config(logconfig).expect("Cound not initialize logging.");
-            log::info!("Started application.");
-        }
-        Err(e) => {
-            println!("Could not start logging {}", e);
-        }
-    }
-}
-
-pub(crate) fn init_pid_file(config: &Config){
-    // setup PID file:
-    match config.get_string("pid_file"){
-        Ok(pidfile_name) =>{
-            //get process id
-            let pid = std::process::id();
-            // check file exists
-            let file_exists = std::path::Path::new(&pidfile_name).exists();
-            // write pid if it does not exist
-            if file_exists==false {
-                match std::fs::File::create(&pidfile_name) {
-                    Ok(output) => {
-                        match write!(&output, "{:?}", pid) {
-                            Ok(_res) => info!("Initialised PID file: {:?}, with process id={}", pidfile_name, pid),
-                            Err(err) => panic!("Could not write to PID file: {:?}, error: {}", pidfile_name, err)
-                        }
-                    }
-                    Err(e) => {
-                        panic!("Cannot initialise PID file: {:?}, error: {}", pidfile_name, e);
-                    }
-                }
-            }
-            else{
-                // throw panic if it exists
-                panic!("Cannot initialise application since the PID file {:?} already exists", pidfile_name);
-            }
-        }
-        Err(e) => {
-            println!("Could not init PID: {}", e);
-        }
-    }
-}
-
-/// Shuts down the application by performing any cleanup required.
-///
-/// # Arguments
-///
-/// * `config`: The application's configuration object
-///
-/// returns: ()
-///
-pub(crate) fn cleanup_pid_file(config: &Config){
-    match config.get_string("pid_file"){
-        Ok(pidfile) =>{
-            match std::fs::remove_file(&pidfile) {
-                Ok(_result) => {
-                    log::debug!("Cleaning PID file: {:?}", pidfile);
-                }
-                Err(e) => {
-                    log::error!("Could not remove PID: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            log::error!("Could not remove PID: {}", e);
-        }
-    }
-    log::info!("Shutting down the application.");
-}
-
-pub fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInfo {
+pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) -> DocInfo {
 
     debug!("Writing document from url: {:?}", received.url);
     let mut docinfo_for_sql = DocInfo{
@@ -209,12 +67,7 @@ pub fn save_to_disk(mut received: Document, data_folder_name: &String) -> DocInf
         section_name: received.section_name.clone(),
     };
 
-    let json_filename = utils::make_unique_filename(&received, "json");
-    debug!("Writing document to file: {}", json_filename);
-    // make full path by joining folder to unique filename
-    let json_file_path = Path::new(data_folder_name.as_str()).join(&json_filename);
-    received.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
-
+    info!("Writing document to file: {}", received.filename);
     // serialize json to string
     match serde_json::to_string_pretty(&received){
         Ok(json_data) => {
@@ -265,25 +118,33 @@ pub fn clean_text(text: String) -> String {
 ///
 /// let filename:String = make_unique_filename(mydoc);
 ///
-pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String {
+pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String{
     match doc_struct.url.rfind('/') {
         Some(slash_pos_in_url) =>{
-            let url_resname = &doc_struct.url[(slash_pos_in_url+1)..];
+            let url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
+                .replace(".html", "")
+                .replace(".htm", "")
+                .replace(".php", "")
+                .replace(".aspx", "")
+                .replace(".asp", "")
+                .replace(".jsp", "");
             if url_resname.len() >1{
-                return format!("{}_{}.{}", doc_struct.module, url_resname, extension)
+                return format!("{}_{}.{}", doc_struct.module, url_resname, extension);
             }else{
-                return format!("{}_index.json", doc_struct.module)
+                return format!("{}_index.json", doc_struct.module);
             }
         }
         None => {
-            info!("Could not get unique id from url: {}", doc_struct.url);
+            info!("Could not get unique resource string from url: {}", doc_struct.url);
             match Uuid::parse_str(&doc_struct.url) {
                 Ok(uuid_str) => {
-                    return format!("{}_{}.json", doc_struct.module, uuid_str.to_string())
+                    return format!("{}_{}.json", doc_struct.module, uuid_str.to_string());
                 },
                 Err(e) => {
                     error!("Could not generate uuid from url: {}", e);
-                    return format!("{}_{}.json", doc_struct.module, doc_struct.publish_date_ms)
+                    // add current timestamp:
+                    let curr_timestamp = Utc::now().timestamp();
+                    return format!("{}_{}_{}.json", doc_struct.module, doc_struct.publish_date_ms, curr_timestamp);
                 }
             }
         }
@@ -426,7 +287,7 @@ pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String, Opti
             proxy_url = Some(proxy_server_url);
         },
         Err(e) => {
-            error!("When extracting proxy_server_url from config: {:?}", e)
+            info!("Could not identify proxy server url from config, not using proxy, error was: {:?}", e)
         }
     }
 
@@ -678,7 +539,10 @@ fn append_with_last_element(stringvec: &mut Vec<String>, text_to_append: String)
     if let Some(lastelem) = stringvec.last(){
         let replacement = format!("{} {}", lastelem, text_to_append);
         let _old = std::mem::replace(&mut stringvec[last_location-1], replacement);
-    };
+    }
+    if last_location == 0{
+        stringvec.push(text_to_append);
+    }
     //return stringvec;
 }
 
@@ -761,12 +625,38 @@ pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String,
     return (summary_part_context, insights_part_context, summary_exec_context, system_context);
 }
 
+
+pub fn build_llm_prompt(model_name: &str, system_context: &str, user_context: &str, input_text: &str) -> String {
+    if model_name.contains("llama") {
+        return prepare_llama_prompt(system_context, user_context, input_text);
+    } else if model_name.contains("gemma") {
+        return prepare_gemma_prompt(system_context, user_context, input_text);
+    }
+    else {
+        return format!("{}\n{}\n{}", system_context, user_context, input_text).to_string();
+    }
+}
+
+pub fn prepare_gemma_prompt(system_context: &str, user_context: &str, input_text: &str) -> String{
+    return format!("<start_of_turn>user\
+        {}\
+        \
+        {}<end_of_turn><start_of_turn>model", user_context, input_text).to_string();
+}
+
+pub fn prepare_llama_prompt(system_context: &str, user_context: &str, input_text: &str) -> String {
+    return format!("<|begin_of_text|><|start_header_id|>system<|end_header_id|>{}\
+        <|eot_id|><|start_header_id|>user<|end_header_id|>{}\
+        \n\n{}<|eot_id|> <|start_header_id|>assistant<|end_header_id|>", system_context, user_context, input_text).to_string();
+}
+
+
 // Description of Tests:
 // These unit tests verify the functions in this module.
 #[cfg(test)]
 mod tests {
-    use crate::utils;
-    use crate::utils::{append_with_last_element, get_last_n_words};
+    use crate::{document, utils};
+    use crate::utils::{append_with_last_element, get_last_n_words, make_unique_filename};
 
     #[test]
     fn test_to_local_datetime() {
@@ -775,11 +665,6 @@ mod tests {
 
     #[test]
     fn test_get_text_from_element() {
-        assert_eq!(1,1);
-    }
-
-    #[test]
-    fn test_make_unique_filename() {
         assert_eq!(1,1);
     }
 
@@ -848,4 +733,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_append_with_last_element_blank_vector(){
+        let mut example_1_vec: Vec<String> = Vec::new();
+        let example_1_toadd = String::from("to append");
+        let example_1_expected = vec![String::from("to append")];
+        append_with_last_element(&mut example_1_vec, example_1_toadd);
+
+        assert_eq!(
+            example_1_vec.last(),
+            example_1_expected.last(),
+            "New text could not be appended correctly to last element."
+        );
+
+        assert_eq!(
+            example_1_vec.len(),
+            example_1_expected.len(),
+            "Vector size increased when appending to last element"
+        );
+    }
+
+    #[test]
+    fn test_make_unique_filename(){
+        let mut example1 = document::new_document();
+        example1.filename = "one_value".to_string();
+        example1.url = "https://www.www.com/sub/page-name.html".to_string();
+        example1.module = "mod_dummy".to_string();
+        example1.publish_date_ms = 1010;
+        let example1_result = make_unique_filename(&example1, "json");
+        println!("output filename: {}", example1_result);
+        assert_eq!(example1_result, "mod_dummy_page-name.json".to_string(), "Unable to set the filename correctly.")
+    }
 }

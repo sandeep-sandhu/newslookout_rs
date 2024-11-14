@@ -21,17 +21,9 @@ use rusqlite;
 use crate::document;
 use crate::network;
 use crate::utils;
-use crate::plugins::{
-    mod_en_in_business_standard,
-    mod_en_in_rbi,
-    mod_offline_docs,
-    mod_classify,
-    mod_dataprep,
-    mod_dedupe,
-    mod_ollama,
-    mod_solrsubmit};
+use crate::plugins::{mod_en_in_business_standard, mod_en_in_rbi, mod_offline_docs, mod_classify, mod_dataprep, mod_dedupe, mod_ollama, mod_solrsubmit, mod_chatgpt, mod_gemini};
 use crate::document::{DocInfo, Document};
-use crate::utils::{extract_plugin_params, save_to_disk};
+use crate::utils::{extract_plugin_params, make_unique_filename, save_to_disk_as_json};
 
 pub fn start_pipeline(config: config::Config) -> Vec<DocInfo> {
 
@@ -223,6 +215,14 @@ fn run_data_proc_pipeline(dataproc_docs_output_tx: Sender<document::DocInfo>, da
                             info!("Starting the plugin: {}",plugin_name);
                             matched_data_proc_fn = mod_ollama::process_data;
                         },
+                        "mod_chatgpt" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_chatgpt::process_data;
+                        },
+                        "mod_gemini" => {
+                            info!("Starting the plugin: {}",plugin_name);
+                            matched_data_proc_fn = mod_gemini::process_data;
+                        },
                         "mod_solrsubmit" => {
                             info!("Starting the plugin: {}",plugin_name);
                             matched_data_proc_fn = mod_solrsubmit::process_data;
@@ -257,12 +257,16 @@ fn run_data_proc_pipeline(dataproc_docs_output_tx: Sender<document::DocInfo>, da
         dataproc_thread_run_handles.push(handle);
         previous_rx = rxi;
     }
+
     // After loop, wait for documents on channel previous_rx and,
     // save to disk and then
     // transmit docinfo to dataproc_docs_output_tx
-    for doc in previous_rx {
+    for mut doc in previous_rx {
         info!("Saving processed document titled - {}", doc.title);
-        let docinfo:DocInfo = save_to_disk(doc, &data_folder_name);
+        // make full path by joining folder to unique filename
+        let json_file_path = Path::new(data_folder_name.as_str()).join(make_unique_filename(&doc, "json"));
+        doc.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
+        let docinfo:DocInfo = save_to_disk_as_json(&doc, json_file_path.to_str().unwrap_or_default());
         dataproc_docs_output_tx.send(docinfo).expect("when sending doc via tx");
     }
 }

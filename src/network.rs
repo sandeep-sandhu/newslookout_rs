@@ -9,7 +9,7 @@ use std::io::Bytes;
 
 use nom::AsBytes;
 use reqwest::Client;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CONTENT_TYPE, InvalidHeaderValue};
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CONTENT_TYPE, CONNECTION, InvalidHeaderValue};
 
 
 pub fn make_http_client(fetch_timeout: u64, user_agent: &str, base_url: String, proxy_url: Option<String>) -> reqwest::blocking::Client {
@@ -59,22 +59,48 @@ pub fn make_http_client(fetch_timeout: u64, user_agent: &str, base_url: String, 
 }
 
 
-pub fn build_llm_api_client(connect_timeout: u64, fetch_timeout: u64) -> reqwest::blocking::Client {
+pub fn build_llm_api_client(connect_timeout: u64, fetch_timeout: u64, proxy_url: Option<String>, custom_headers: Option<HeaderMap>) -> reqwest::blocking::Client {
+
     let pool_idle_timeout: u64 = (connect_timeout + fetch_timeout) * 5;
     let pool_max_idle_connections: usize = 1;
-    // add headers
+
     let mut headers = HeaderMap::new();
+    if let Some(custom_header_map) = custom_headers {
+        headers = custom_header_map;
+    }
+    // prepare headers:
     headers.insert(reqwest::header::CONNECTION, HeaderValue::from_static("keep-alive"));
+    headers.insert(reqwest::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
     // build client:
-    let client: reqwest::blocking::Client = reqwest::blocking::Client::builder()
+    let client_builder = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(fetch_timeout))
         .connect_timeout(Duration::from_secs(connect_timeout))
         .default_headers(headers)
         .gzip(true)
         .pool_idle_timeout(Duration::from_secs(pool_idle_timeout))
-        .pool_max_idle_per_host(pool_max_idle_connections)
-        .build().expect("Require valid parameters for building HTTP client");
-    return client;
+        .pool_max_idle_per_host(pool_max_idle_connections);
+    if proxy_url.is_some() {
+        if let Some(proxy_url_str) = proxy_url {
+            // if proxy is configured, then add proxy with https rule:
+            match reqwest::Proxy::https(proxy_url_str.as_str()) {
+                Ok(proxy_obj) => {
+                    let client: reqwest::blocking::Client = client_builder
+                        .proxy(proxy_obj)
+                        .build()
+                        .expect("Require valid parameters for building HTTP client");
+                    return client;
+                }
+                Err(e) => {
+                    error!("Unable to use proxy, Error when setting the proxy server: {}", e);
+                }
+            }
+        }
+    }
+    let client_no_proxy: reqwest::blocking::Client = client_builder
+        .build()
+        .expect("Require valid parameters for building REST API client");
+    return client_no_proxy;
 }
 
 

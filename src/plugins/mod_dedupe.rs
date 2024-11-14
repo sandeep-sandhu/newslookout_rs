@@ -26,7 +26,7 @@ pub(crate) fn process_data(tx: Sender<Document>, rx: Receiver<Document>, config:
     info!("{}: Getting configuration.", PLUGIN_NAME);
 
     for doc in rx {
-        info!("Saving processed document titled - {}", doc.title);
+        info!("{}: Started processing document titled - {}", PLUGIN_NAME, doc.title);
         let updated_doc:Document = update_doc(doc);
         match tx.send(updated_doc) {
             Result::Ok(_) => {},
@@ -38,7 +38,7 @@ pub(crate) fn process_data(tx: Sender<Document>, rx: Receiver<Document>, config:
 }
 
 fn update_doc(raw_doc: Document) -> Document{
-    info!("{}: updating document titled - '{}'", PLUGIN_NAME, raw_doc.title);
+    info!("{}: processing document titled - '{}'", PLUGIN_NAME, raw_doc.title);
 
     // TODO: implement this
 

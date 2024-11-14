@@ -32,6 +32,12 @@
 //! Refer to the README file for more information.
 
 use std::env;
+use std::io::Write;
+use config::Config;
+use log::{error, info, LevelFilter};
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Root};
+use log4rs::encode::pattern::PatternEncoder;
 use crate::document::DocInfo;
 
 pub mod plugins {
@@ -45,15 +51,15 @@ pub mod plugins {
     pub mod mod_chatgpt;
     pub mod mod_gemini;
     pub(crate) mod mod_solrsubmit;
-    pub(crate) mod mod_save_to_disk;
+    pub(crate) mod mod_persist_data;
 }
 
 pub mod network;
 pub mod utils;
+pub mod llm;
 pub mod document;
-
 mod queue;
-mod llm;
+
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -78,17 +84,161 @@ const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 ///
 pub fn run_app(config: config::Config) -> Vec<DocInfo> {
 
-    utils::init_logging(&config);
-    utils::init_pid_file(&config);
-    log::info!("{} application, v{}", CARGO_PKG_NAME.to_uppercase(), VERSION);
+    init_logging(&config);
+    init_pid_file(&config);
+    log::info!("Starting the {} data pipeline, library v{}", CARGO_PKG_NAME.to_uppercase(), VERSION);
 
     let docs_retrieved = queue::start_pipeline(config.clone());
 
-    log::info!("Completed processing {} documents.", docs_retrieved.len());
+    log::info!("Data pipeline completed processing {} documents.", docs_retrieved.len());
 
-    utils::cleanup_pid_file(&config);
+    cleanup_pid_file(&config);
 
     return docs_retrieved;
+}
+
+
+/// Initialise the application by configuring the log file, and
+/// setting the PID file to prevent duplicate instances form running simultaneously.
+///
+/// # Arguments
+///
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+///
+pub(crate) fn init_logging(config: &Config){
+    // setup logging:
+    match config.get_string("log_file"){
+        Ok(logfile) =>{
+
+            //set loglevel parameter from log file:
+            let mut app_loglevel = LevelFilter::Info;
+            match config.get_string("log_level"){
+                Ok(loglevel_str) =>{
+                    match loglevel_str.as_str() {
+                        "DEBUG" => app_loglevel = LevelFilter::Debug,
+                        "INFO" => app_loglevel = LevelFilter::Info,
+                        "WARN" => app_loglevel = LevelFilter::Warn,
+                        "ERROR" => app_loglevel = LevelFilter::Error,
+                        _other => error!("Unknown log level configured in logfile: {}", _other)
+                    }
+                },
+                Err(e) => error!("When getting the log level: {}", e)
+            }
+            println!("Logging to file: {:?}", logfile);
+
+            // read parameter from config file : max_logfile_size
+            let mut size_limit =10 * 1024 * 1024; // 10 MB
+            match config.get_int("max_logfile_size") {
+                Ok(max_logfile_size) => size_limit = max_logfile_size,
+                Err(e) => error!("When reading max logfile size: {}", e)
+            }
+            // TODO: implement log rotation
+            // logfile.push_str("{}");
+            // let window_size = 10;
+            // let fixed_window_roller =
+            //     FixedWindowRoller::builder().build(logfile.as_str(), window_size).unwrap();
+            // let size_trigger = SizeTrigger::new(size_limit);
+            // let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
+            // let config = log4rs::config::Config::builder().appender(
+            //         Appender::builder()
+            //             .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
+            //             .build(
+            //                 "logfile",
+            //                 Box::new(
+            //                     RollingFileAppender::builder()
+            //                         .encoder(Box::new(PatternEncoder::new("{d} {l}::{m}{n}")))
+            //                         .build(logfile, Box::new(compound_policy)),
+            //                 ),
+            //             ),
+            //     )
+            //     .build(
+            //         Root::builder()
+            //             .appender("logfile")
+            //             .build(LevelFilter::Info),
+            //     )?;
+
+            let logfile = FileAppender::builder()
+                .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)(local)} {i} [{l}] - {m}{n}")))
+                .build(logfile)
+                .expect("Cound not init log file appender.");
+
+            let logconfig = log4rs::config::Config::builder()
+                .appender(Appender::builder().build("logfile", Box::new(logfile)))
+                .build(Root::builder()
+                    .appender("logfile")
+                    .build(app_loglevel))
+                .expect("Cound not build a logging config.");
+
+            log4rs::init_config(logconfig).expect("Cound not initialize logging.");
+            log::info!("Started application.");
+        }
+        Err(e) => {
+            println!("Could not start logging {}", e);
+        }
+    }
+}
+
+pub(crate) fn init_pid_file(config: &Config){
+    // setup PID file:
+    match config.get_string("pid_file"){
+        Ok(pidfile_name) =>{
+            //get process id
+            let pid = std::process::id();
+            // check file exists
+            let file_exists = std::path::Path::new(&pidfile_name).exists();
+            // write pid if it does not exist
+            if file_exists==false {
+                match std::fs::File::create(&pidfile_name) {
+                    Ok(output) => {
+                        match write!(&output, "{:?}", pid) {
+                            Ok(_res) => info!("Initialised PID file: {:?}, with process id={}", pidfile_name, pid),
+                            Err(err) => panic!("Could not write to PID file: {:?}, error: {}", pidfile_name, err)
+                        }
+                    }
+                    Err(e) => {
+                        error!("Cannot initialise PID file: {:?}, error: {}", pidfile_name, e);
+                        std::process::exit(0x0100);
+                    }
+                }
+            }
+            else{
+                // throw panic if it exists
+                panic!("Cannot initialise application since the PID file {:?} already exists", pidfile_name);
+            }
+        }
+        Err(e) => {
+            println!("Could not init PID: {}", e);
+        }
+    }
+}
+
+/// Shuts down the application by performing any cleanup required.
+///
+/// # Arguments
+///
+/// * `config`: The application's configuration object
+///
+/// returns: ()
+///
+pub(crate) fn cleanup_pid_file(config: &Config){
+    match config.get_string("pid_file"){
+        Ok(pidfile) =>{
+            match std::fs::remove_file(&pidfile) {
+                Ok(_result) => {
+                    log::debug!("Cleaning PID file: {:?}", pidfile);
+                }
+                Err(e) => {
+                    log::error!("Could not remove PID: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("Could not remove PID: {}", e);
+        }
+    }
+    log::info!("Shutting down the application.");
 }
 
 #[cfg(test)]

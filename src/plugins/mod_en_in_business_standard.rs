@@ -23,6 +23,16 @@ const STARTER_URLS: [(&str, &str); 1] = [
     ("https://www.business-standard.com/", "main"),
 ];
 
+
+/// Executes this function of the web-retriever module in the separate thread launched by
+/// the pipeline/queue module
+///
+/// # Arguments
+///
+/// * `tx`: The channel to transmit newly identified or web scraped documents
+/// * `app_config`: The application configuration object to be used to get various config parameters
+///
+/// returns: ()
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
     info!("{}: Starting worker", PLUGIN_NAME);

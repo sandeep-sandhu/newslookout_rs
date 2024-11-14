@@ -18,7 +18,7 @@ use {
     regex::Regex,
 };
 
-use crate::{document, network};
+use crate::{document, network, utils};
 use crate::document::{Document};
 use crate::network::make_http_client;
 use crate::utils::{extract_text_from_html, split_by_word_count, clean_text, get_data_folder, get_network_params, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename};
@@ -36,6 +36,14 @@ const STARTER_URLS: [(&str,&str); 6] = [
 ];
 
 
+/// Executes this function of the module in the separate thread launched by the pipeline/queue module
+///
+/// # Arguments
+///
+/// * `tx`: The channel to transmit newly identified or web scraped documents
+/// * `app_config`: The application configuration object to be used to get various config parameters
+///
+/// returns: ()
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
@@ -99,12 +107,6 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 /// * `max_pages`:
 ///
 /// returns: u32
-///
-/// # Examples
-///
-/// ```
-///
-/// ```
 fn get_url_listing(
     starter_urls: [(&str, &str); 6],
     database_filename: &str,
@@ -253,6 +255,10 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
                 for page_div in page_content.select(&whole_page_content_selector){
                     this_new_doc.html_content = page_div.html();
                 }
+                // make full path by joining folder to unique filename
+                let filename = make_unique_filename(&this_new_doc, "json");
+                let json_file_path = Path::new(data_folder).join(filename);
+                this_new_doc.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
 
                 debug!("From listing page {}: got the document url {}, and its content of size: {}",
                     url_listing_page, this_new_doc.url, this_new_doc.html_content.len());

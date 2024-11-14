@@ -29,6 +29,7 @@ pub const PUBLISHER_NAME: &str = "LLM Processing via ChatGPT API Service";
 pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config){
 
     info!("{}: Getting configuration specific to the module.", PLUGIN_NAME);
+    let mut doc_counter: u32 = 0;
 
     // get fetch timeout config parameter
     let mut fetch_timeout: u64 = 150;
@@ -57,17 +58,18 @@ pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Docum
         let updated_doc:document::Document = update_doc(
             &api_client,
             doc,
+            PLUGIN_NAME,
             &app_config,
             generate_using_llm
         );
 
         //for each document received in channel queue, send it to next queue:
         match tx.send(updated_doc) {
-            Result::Ok(_) => {},
+            Result::Ok(_) => {doc_counter += 1;},
             Err(e) => error!("{}: When sending processed doc via tx: {}", PLUGIN_NAME, e)
         }
     }
-    info!("{}: Completed processing all data.", PLUGIN_NAME);
+    info!("{}: Completed processing {} documents.", PLUGIN_NAME, doc_counter);
 }
 
 pub fn generate_using_llm(svc_base_url: &str, http_api_client: &reqwest::blocking::Client, model_name: &str, prompt_text: &str, app_config: &Config) -> String {
@@ -114,7 +116,8 @@ pub struct RequestPayload {
     pub model: String,
     pub messages: Vec<HashMap<String, String>>,
     pub temperature: f64,
-    max_completion_tokens: usize
+    max_completion_tokens: usize,
+    logprobs: bool,
 }
 
 pub fn prepare_payload(prompt: &str, model: &str, system_context: &str, num_context: usize, max_tok_gen: usize, temperature: usize) -> RequestPayload {
@@ -133,6 +136,7 @@ pub fn prepare_payload(prompt: &str, model: &str, system_context: &str, num_cont
         ],
         temperature: temperature as f64,
         max_completion_tokens: max_tok_gen,
+        logprobs: true,
     };
     // {
     //      "model": "gpt-4o-mini",

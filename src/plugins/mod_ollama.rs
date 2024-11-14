@@ -59,6 +59,7 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
         let updated_doc:document::Document = update_doc(
             &ollama_client,
             doc,
+            PLUGIN_NAME,
             &app_config,
             generate_using_llm
         );

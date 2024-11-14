@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 use crate::{document, utils};
 use crate::document::{DocInfo, Document};
-use crate::plugins::mod_ollama::PLUGIN_NAME;
+
 
 pub fn read_config(cfg_file: String) -> Config{
     let mut cfg_builder = Config:: builder();
@@ -596,6 +596,13 @@ pub fn get_plugin_config(app_config: &Config, plugin_name: &str, param_key: &str
     return None;
 }
 
+/// Get user context (prompts) from application configuration.
+///
+/// # Arguments
+///
+/// * `app_config`:
+///
+/// returns: (String, String, String, String)
 pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String, String){
 
     let mut summary_part_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");

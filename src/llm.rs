@@ -6,30 +6,29 @@ use config::Config;
 use log::{error, info};
 use reqwest::blocking::Client;
 use crate::document;
-use crate::plugins::mod_ollama::PLUGIN_NAME;
 use crate::utils::{build_llm_prompt, get_contexts_from_config, get_data_folder, get_plugin_config, make_unique_filename, save_to_disk_as_json};
 
-pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app_config: &Config, llm_fn: fn(&str, &Client, &str, &str, &Config) -> String) -> document::Document{
+pub fn update_doc(http_api_client: &Client, mut input_doc: document::Document, plugin_name: &str, app_config: &Config, llm_fn: fn(&str, &Client, &str, &str, &Config) -> String) -> document::Document{
 
     let loopiters = input_doc.text_parts.len() as i32;
-    info!("{}: Starting to process {} parts of document - '{}'", PLUGIN_NAME, loopiters, input_doc.title);
+    info!("{}: Starting to process {} parts of document - '{}'", plugin_name, loopiters, input_doc.title);
 
-    let mut model_name: String = String::from("llama3.1");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "model_name"){
+    let mut model_name: String = String::from("");
+    match get_plugin_config(&app_config, plugin_name, "model_name"){
         Some(param_val_str) => {
             model_name =param_val_str;
         }, None => {}
     };
 
-    let mut svc_url: String = String::from("http://127.0.0.1/");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "svc_url"){
+    let mut svc_url: String = String::from("http://127.0.0.1/api/generate");
+    match get_plugin_config(&app_config, plugin_name, "svc_url"){
         Some(param_val_str) => {
-            svc_url = format!("{}api/generate", param_val_str);
+            svc_url = param_val_str;
         }, None => {}
     };
 
     let mut overwrite: bool = false;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "overwrite"){
+    match get_plugin_config(&app_config, plugin_name, "overwrite"){
         Some(param_val_str) => {
             match param_val_str.trim().parse(){
                 Result::Ok(param_bool) => overwrite = param_bool,
@@ -39,7 +38,7 @@ pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app
     };
 
     let mut save_intermediate: bool = false;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "save_intermediate"){
+    match get_plugin_config(&app_config, plugin_name, "save_intermediate"){
         Some(param_val_str) => {
             match param_val_str.trim().parse(){
                 Result::Ok(param_bool) => save_intermediate = param_bool,
@@ -52,7 +51,7 @@ pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app
     let data_folder_name = binding.to_str().unwrap_or_default();
 
     let mut temperature: f64 = 0.0;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "temperature"){
+    match get_plugin_config(&app_config, plugin_name, "temperature"){
         Some(param_val_str) => {
             match param_val_str.trim().parse(){
                 Result::Ok(param_float) => temperature = param_float,
@@ -85,7 +84,7 @@ pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app
                 to_generate_insights = true;
                 let key = text_part_map.get("id").expect("Each text part in the document should contain key 'id'");
                 let text_part = text_part_map.get("text").expect("Each text part in the document should contain key 'text'");
-                info!("{}: Processing text part #{}", PLUGIN_NAME, key);
+                info!("{}: Processing text part #{}", plugin_name, key);
 
                 // check if there is a key "summary", if so:
                 if let Some(existing_summary) = text_part_map.get("summary") {
@@ -97,7 +96,7 @@ pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app
                 if to_generate_summary == true{
                     let summary_part_prompt = build_llm_prompt(model_name.as_str(), system_context.as_str(), summary_part_context.as_str(), text_part.as_str());
                     // call service with payload to generate summary of part:
-                    let summary_part = llm_fn(svc_url.as_str(), ollama_client, model_name.as_str(), summary_part_prompt.as_str(), app_config);
+                    let summary_part = llm_fn(svc_url.as_str(), http_api_client, model_name.as_str(), summary_part_prompt.as_str(), app_config);
                     all_summaries.push_str("\n");
                     all_summaries.push_str(summary_part.as_str());
                     text_part_map_clone.insert("summary".to_string(), summary_part);
@@ -113,7 +112,7 @@ pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app
                     // call service with payload to generate insights:
                     let insights_part_prompt = build_llm_prompt(model_name.as_str(), system_context.as_str(), insights_part_context.as_str(), text_part.as_str());
                     // call service with payload to generate insights of part:s
-                    let insights_part = llm_fn(svc_url.as_str(), ollama_client, model_name.as_str(), insights_part_prompt.as_str(), app_config);
+                    let insights_part = llm_fn(svc_url.as_str(), http_api_client, model_name.as_str(), insights_part_prompt.as_str(), app_config);
                     all_actions.push_str(insights_part.as_str());
                     text_part_map_clone.insert("insights".to_string(), insights_part);
                 }
@@ -136,19 +135,19 @@ pub fn update_doc(ollama_client: &Client, mut input_doc: document::Document, app
     // generate the exec summary:
     let exec_summary_prompt= build_llm_prompt(model_name.as_str(), system_context.as_str(), summary_exec_context.as_str(), all_summaries.as_str());
     // call service with payload to generate summary:
-    let exec_summary= llm_fn(svc_url.as_str(), ollama_client, model_name.as_str(), exec_summary_prompt.as_str(), app_config);
+    let exec_summary= llm_fn(svc_url.as_str(), http_api_client, model_name.as_str(), exec_summary_prompt.as_str(), app_config);
     // add to generated_content
     input_doc.generated_content.insert("exec_summary".to_string(), exec_summary);
 
     // generate the actions summary:
     let actions_summary_prompt= build_llm_prompt(model_name.as_str(), system_context.as_str(), summary_exec_context.as_str(), all_actions.as_str());
     // call service with payload to generate actions summary:
-    let actions_summary= llm_fn(svc_url.as_str(), ollama_client, model_name.as_str(), actions_summary_prompt.as_str(), app_config);
+    let actions_summary= llm_fn(svc_url.as_str(), http_api_client, model_name.as_str(), actions_summary_prompt.as_str(), app_config);
     input_doc.generated_content.insert("actions_summary".to_string(), actions_summary);
 
     save_to_disk_as_json(&input_doc, json_file_path.to_str().unwrap_or_default());
 
-    info!("{}: Model {} completed processing document titled: '{}' ", PLUGIN_NAME, input_doc.title, model_name);
+    info!("{}: Model {} completed processing document titled: '{}' ", plugin_name, model_name, input_doc.title);
     return input_doc;
 }
 

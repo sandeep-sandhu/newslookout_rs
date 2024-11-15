@@ -71,10 +71,12 @@ fn get_and_send_docs_from_data_folder(data_folder_name: &str, tx: Sender<documen
     // for each file, read contents:
     for json_file_path in all_json_files{
 
-        let open_file = fs::File::open(json_file_path)
+        let open_file = fs::File::open(json_file_path.clone())
             .expect("JSON file should open read only");
         // de-serialize string to Document:
         let mut mydoc: Document = serde_json::from_reader(open_file).expect("JSON was not well-formatted");
+        // change filename to present filename
+        mydoc.filename = json_file_path.to_string_lossy().parse().unwrap();
         // for each document extracted run function
         custom_data_processing(&mut mydoc);
         match tx.send(mydoc) {

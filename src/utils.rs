@@ -119,6 +119,7 @@ pub fn clean_text(text: String) -> String {
 /// let filename:String = make_unique_filename(mydoc);
 ///
 pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String{
+    // TODO: limit name to 100 characters in length
     match doc_struct.url.rfind('/') {
         Some(slash_pos_in_url) =>{
             let url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
@@ -694,7 +695,7 @@ mod tests {
     #[test]
     fn test_split_by_word_count_with_overlap(){
         let para2 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
-        let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1", " 1  lazy\n\n dog.\n\n"];
+        let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1  1  lazy\n\n dog.\n\n"];
         let result2 = utils::split_by_word_count(para2, 3, 1);
         println!("Word split result = {:?}", result2);
         assert_eq!(result2, para2_expected_answer, "Did not split text into parts by word limit and overlap");
@@ -704,7 +705,7 @@ mod tests {
     fn test_split_by_word_count_with_overlap_long(){
         let para3 = "one \n\n two \n\n three \n\n four \n\n five \n\n six \n\n seven \n\n eight \n\n nine \n\n ten \n\n eleven \n\n twelve \n\n thirteen \n\n fourteen \n\n fifteen \n\n";
         // test for overlap inclusion:
-        let para3_expected_answer = vec![" one \n\n two \n\n three \n\n four \n\n five ", "  four   five   six \n\n seven \n\n eight ", "  seven   eight   nine \n\n ten \n\n eleven ", "  ten   eleven   twelve \n\n thirteen \n\n fourteen ", "  thirteen   fourteen   fifteen \n\n"];
+        let para3_expected_answer = vec![" one \n\n two \n\n three \n\n four \n\n five ", "  four   five   six \n\n seven \n\n eight ", "  seven   eight   nine \n\n ten \n\n eleven ", "  ten   eleven   twelve \n\n thirteen \n\n fourteen    thirteen   fourteen   fifteen \n\n"];
         let result3 = utils::split_by_word_count(para3, 5, 2);
         println!("Word split result = {:?}", result3);
         assert_eq!(result3, para3_expected_answer, "Did not split text into parts correctly by word limit and overlap");

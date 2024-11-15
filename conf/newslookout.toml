@@ -31,7 +31,7 @@ conf_dir ="conf"
 
 # The data_dir specifies the name of the directory where the data files will be saved:
 #data_dir =  "/media/shared/datasets/newslookout_rs_data"
-data_dir =  "data/files"
+data_dir =  "C:/shared/datasets/newslookout_rs_data/files"
 
 # the master data files will be stored in this folder (e.g. those datasets that are appended daily)
 master_data_dir = "data/master_data"
@@ -39,7 +39,7 @@ master_data_dir = "data/master_data"
 models_dir =  "models"
 
 # location of the log file, here it is specified relative to the data directory:
-log_file = "logs/newslookout.log"
+log_file = "C:/shared/datasets/newslookout_rs_data/newslookout.log"
 
 # If a PID (process identifier) file exists, the application will not launch.
 # This is to prevent multiple instances being launched on the same machine.
@@ -48,7 +48,7 @@ pid_file = "logs/newslookout.pid"
 
 # the sqlite data file that stores the history of previously retrieved URLs
 #completed_urls_datafile = "/media/shared/newslookout_urls.db"
-completed_urls_datafile = "data/newslookout_urls.db"
+completed_urls_datafile = "C:/shared/datasets/newslookout_rs_data/newslookout_urls.db"
 
 cookie_file="data/cookies.txt"
 

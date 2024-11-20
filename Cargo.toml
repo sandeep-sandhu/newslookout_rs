@@ -11,7 +11,7 @@ keywords = ["analytics", "data_transformations", "machine_learning", "Model_depl
 categories = ["command-line-utilities", "command-line-interface", "finance", "text-processing"]
 readme = "README.md"
 license-file = "LICENSE"
-build = "build.rs"
+#build = "build.rs"
 
 [lib]
 name = "newslookout"

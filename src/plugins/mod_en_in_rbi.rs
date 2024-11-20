@@ -3,10 +3,12 @@
 
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Bytes, Read, Write};
 use std::path::Path;
 use std::sync::mpsc::Sender;
+use std::borrow::BorrowMut;
 
 use config::{Config};
 use chrono::{NaiveDate, Utc};
@@ -14,25 +16,38 @@ use log::{debug, error, info};
 use nom::AsBytes;
 use pdf_extract::extract_text_from_mem;
 use rand::Rng;
+use scraper::ElementRef;
+use serde_json::{json, Value};
 use {
     regex::Regex,
 };
 
 use crate::{document, network, utils};
-use crate::document::{Document};
-use crate::network::make_http_client;
-use crate::utils::{extract_text_from_html, split_by_word_count, clean_text, get_data_folder, get_network_params, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename};
+use crate::document::{Document, new_document};
+use crate::html_extract::{extract_text_from_html, extract_doc_from_row};
+use crate::llm::check_and_split_text;
+use crate::network::{read_network_parameters, make_http_client, NetworkParameters};
+use crate::utils::{split_by_word_count, clean_text, get_data_folder, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename, retrieve_pdf_content, extract_text_from_pdf};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_en_in_rbi";
 const PUBLISHER_NAME: &str = "Reserve Bank of India";
 const BASE_URL: &str = "https://website.rbi.org.in/";
-const STARTER_URLS: [(&str,&str); 6] = [
+const STARTER_URLS: [(&str,&str); 15] = [
     ("https://website.rbi.org.in/web/rbi/notifications/rbi-circulars", "Circular"),
     ("https://website.rbi.org.in/web/rbi/press-releases", "Press Release"),
     ("https://website.rbi.org.in/web/rbi/notifications/draft-notifications", "Draft Notifications"),
     ("https://website.rbi.org.in/web/rbi/notifications/master-directions", "Master Directions"),
     ("https://website.rbi.org.in/en/web/rbi/notifications/master-circulars", "Master Circulars"),
     ("https://website.rbi.org.in/web/rbi/notifications", "Notifications"),
+    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/act", "Acts"),
+    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/rules", "Rules"),
+    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/regulations", "Regulations"),
+    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/schemes", "Schemes"),
+    ("https://website.rbi.org.in/web/rbi/speeches", "Speeches"),
+    ("https://website.rbi.org.in/web/rbi/interviews", "Interviews and Media Interactions"),
+    ("https://website.rbi.org.in/web/rbi/publications/publications-by-frequency", "Reports"),
+    ("https://website.rbi.org.in/web/rbi/publications/reports/financial_stability_reports", "Reports"),
+    ("https://website.rbi.org.in/web/rbi/publications/articles", "Articles"),
 ];
 
 
@@ -46,9 +61,10 @@ const STARTER_URLS: [(&str,&str); 6] = [
 /// returns: ()
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
-    info!("{}: Getting configuration.", PLUGIN_NAME);
-    let (fetch_timeout_seconds, retry_times, wait_time, user_agent, proxy_server) = get_network_params(&app_config);
-    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string(), proxy_server);
+    info!("{}: Reading plugin specific configuration.", PLUGIN_NAME);
+    let mut netw_params = read_network_parameters(&app_config);
+    netw_params.referrer_url = Some(BASE_URL.to_string());
+    let client = make_http_client(&netw_params);
     let database_filename = get_database_filename(&app_config);
 
     let mut maxitemsinpage = 1;
@@ -72,14 +88,14 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
     match get_data_folder(&app_config).to_str(){
         Some(data_folder_name) => {
 
-            let _count_docs = get_url_listing(
+            let _count_docs = retrieve_data(
                 STARTER_URLS,
                 database_filename.as_str(),
                 &client,
                 tx,
                 data_folder_name,
-                retry_times,
-                wait_time,
+                netw_params.retry_times,
+                netw_params.wait_time_min,
                 maxitemsinpage,
                 maxpages
             );
@@ -107,21 +123,21 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 /// * `max_pages`:
 ///
 /// returns: u32
-fn get_url_listing(
-    starter_urls: [(&str, &str); 6],
+fn retrieve_data(
+    starter_urls: [(&str, &str); 15],
     database_filename: &str,
     client: &reqwest::blocking::Client,
     tx: Sender<document::Document>,
     data_folder: &str,
-    retry_times: u64,
-    wait_time:u64,
+    retry_times: usize,
+    wait_time:usize,
     maxitemsinpage: u64,
     max_pages: u64
-) -> u32 {
+) -> usize {
 
-    info!("Plugin {}: Getting url listing for ", PLUGIN_NAME);
+    debug!("Plugin {}: Getting url listing for already retrieved urls", PLUGIN_NAME);
     let mut already_retrieved_urls = get_urls_from_database(database_filename, PLUGIN_NAME);
-    info!("For module {}: Got {} previously retrieved urls from table.", PLUGIN_NAME, already_retrieved_urls.len());
+    info!("For Plugin {}: Got {} previously retrieved urls from table.", PLUGIN_NAME, already_retrieved_urls.len());
 
     let mut rng = rand::thread_rng();
     let mut counter = 0;
@@ -136,8 +152,9 @@ fn get_url_listing(
 
             // retrieve content from this url and extract vector of documents, mainly individual urls to retrieve.
             let content = network::http_get(&listing_url_with_args, &client, retry_times, rng.gen_range(wait_time..=(wait_time*3)));
-            let mut new_docs = get_docs_from_listing_page(
+            let count_of_docs = get_docs_from_listing_page(
                 content,
+                &tx,
                 &listing_url_with_args,
                 section_name,
                 &mut already_retrieved_urls,
@@ -146,23 +163,72 @@ fn get_url_listing(
                 wait_time,
                 data_folder
             );
+            counter += count_of_docs;
 
-            for mut doc_to_process in new_docs {
-                custom_data_processing(&mut doc_to_process);
-                match tx.send(doc_to_process) {
-                    Result::Ok(_res) => {
-                        counter += 1;
-                        debug!("Sent another document for processing, count so far = {}", counter);
-                    },
-                    Err(e) => error!("When sending document via channel: {}", e)
-                }
-            }
         }
     }
     return counter;
 }
 
 
+/// Extract content of the associated PDF file mentioned in the document's pdf_url attribute
+/// Converts to text and saves it to the document 'text' attribute.
+/// The PDF content is saved as a file in the data_folder.
+///
+/// # Arguments
+///
+/// * `input_doc`: The document to read
+/// * `client`: The HTTP(S) client for fectching the web content via GET requests
+/// * `data_folder`: The data folder where the PDF files are to be saved.
+///
+/// returns: ()
+pub fn load_pdf_content(
+    mut input_doc: &mut Document,
+    client: &reqwest::blocking::Client,
+    data_folder: &str)
+{
+    if input_doc.pdf_url.len() > 4 {
+        let pdf_filename = make_unique_filename(&input_doc, "pdf");
+        // save to file in data_folder, make full path by joining folder to unique filename
+        let pdf_file_path = Path::new(data_folder).join(&pdf_filename);
+        // check if pdf already exists, if so, do not retrieve again:
+        if Path::exists(pdf_file_path.as_path()){
+            info!("Not retrieving PDF since it already exists: {:?}", pdf_file_path);
+            if input_doc.text.len() > 1 {
+                let txt_filename = make_unique_filename(&input_doc, "txt");
+                let txt_file_path = Path::new(data_folder).join(&txt_filename);
+                input_doc.text = extract_text_from_pdf(pdf_file_path, txt_file_path);
+            }
+        }else {
+            // get pdf content, and its plaintext output
+            let (pdf_data, plaintext) = retrieve_pdf_content(&input_doc.pdf_url, client);
+            input_doc.text = plaintext;
+            debug!("From url {}: retrieved pdf file from link: {} of length {} bytes",
+                input_doc.url, input_doc.pdf_url, pdf_data.len()
+            );
+            if pdf_data.len() > 1 {
+                // persist to disk
+                match File::create(&pdf_file_path) {
+                    Ok(mut pdf_file) => {
+                        debug!("Created pdf file: {:?}, now starting to write data for: '{}' ",
+                            pdf_file_path, input_doc.title
+                        );
+                        match pdf_file.write_all(pdf_data.as_bytes()) {
+                            Ok(_write_res) => info!("From url {} wrote {} bytes to file: {}",
+                                input_doc.pdf_url, pdf_data.len(),
+                                pdf_file_path.as_os_str().to_str().unwrap()),
+                            Err(write_err) => error!("When writing PDF file to disk: {}",
+                                write_err)
+                        }
+                    },
+                    Err(file_err) => {
+                        error!("When creating pdf file: {}", file_err);
+                    }
+                }
+            }
+        }
+    }
+}
 /// Retrieve documents from the page that lists multiple documents, extract relevant content and
 /// return back vector of documents.
 ///
@@ -191,17 +257,22 @@ fn get_url_listing(
 ///                 "/var/cache/newslookout"
 ///             );
 ///
-fn get_docs_from_listing_page(content: String, url_listing_page: &String, section_name: &str, already_retrieved_urls: &mut HashSet<String>, client: &reqwest::blocking::Client, retry_times:u64, wait_time:u64, data_folder: &str) -> Vec<document::Document>{
-
-    let mut new_docs: Vec<document::Document> = Vec::new();
+pub fn get_docs_from_listing_page(
+    content: String,
+    tx: &Sender<document::Document>,
+    url_listing_page: &String,
+    section_name: &str,
+    already_retrieved_urls: &mut HashSet<String>,
+    client: &reqwest::blocking::Client,
+    retry_times:usize,
+    wait_time:usize,
+    data_folder: &str) -> usize
+{
+    let mut counter: usize=0;
     let mut rng = rand::thread_rng();
 
     let rows_selector = scraper::Selector::parse("div.notifications-row-wrapper>div>div").unwrap();
-    let alink_selector = scraper::Selector::parse("a.mtm_list_item_heading").unwrap();
-    let date_selector = scraper::Selector::parse("div.notification-date>span").unwrap();
-    let doctitle_selector = scraper::Selector::parse("span.mtm_list_item_heading").unwrap();
-    let pdf_link_selector = scraper::Selector::parse("a.matomo_download").unwrap();
-    let description_snippet_selector = scraper::Selector::parse("div.notifications-description p").unwrap();
+    // to select div with class = "Notification-content-wrap"
     let whole_page_content_selector = scraper::Selector::parse("div.Notification-content-wrap").unwrap();
 
     // get url list:
@@ -210,146 +281,66 @@ fn get_docs_from_listing_page(content: String, url_listing_page: &String, sectio
     let html_document = scraper::Html::parse_document(&content.as_str());
 
     'rows_loop: for row_each in html_document.select(&rows_selector){
-
-        // prepare empty document:
-        let mut this_new_doc = document::new_document();
-        // set values
+        //Create document from row contents:
+        let mut this_new_doc = extract_doc_from_row(row_each, url_listing_page);
+        // set module specific values:
         this_new_doc.module = PLUGIN_NAME.to_string();
         this_new_doc.plugin_name = PUBLISHER_NAME.to_string();
         this_new_doc.section_name = section_name.to_string();
         this_new_doc.source_author = PUBLISHER_NAME.to_string();
-        // init document with default "others" categories in classification field.
-        this_new_doc.classification = HashMap::from( [
-            ("channel".to_string(),"other".to_string()),
-            ("customer_type".to_string(), "other".to_string()),
-            ("function".to_string(),"other".to_string()),
-            ("market_type".to_string(),"other".to_string()),
-            ("occupation".to_string(),"other".to_string()),
-            ("product_type".to_string(),"other".to_string()),
-            ("risk_type".to_string(),"other".to_string()),
-            // document type:
-            ("doc_type".to_string(),"regulatory-notification".to_string()),
-        ]);
-        let mut date_str = String::from("");
+        this_new_doc.data_proc_flags = document::DATA_PROC_CLASSIFY_INDUSTRY |
+            document::DATA_PROC_CLASSIFY_MARKET | document::DATA_PROC_CLASSIFY_PRODUCT |
+            document::DATA_PROC_EXTRACT_NAME_ENTITY | document::DATA_PROC_SUMMARIZE |
+            document::DATA_PROC_EXTRACT_ACTIONS;
 
-        let snippet_regex: Regex = Regex::new(
-            r"(RBI[/A-Z]+\d{4}-\d{2,4}/\d*)(.+\d{4}-\d{2,4}[ ]*)((January|February|March|April|May|June|July|August|September|October|November|December)[\d ]+,[\d ]+)(.+)(Madam|Madam[ ]*/[ ]*Dear Sir|Dear Sir/|Dear Sir /|Madam / Dear Sir|Madam / Sir|$)"
-        ).unwrap();
+        debug!("{}: checking url: {} if already retrieved? {}",
+            PLUGIN_NAME,
+            this_new_doc.url,
+            already_retrieved_urls.contains(this_new_doc.url.as_str())
+        );
+        if already_retrieved_urls.contains(&this_new_doc.url){
+            info!("{}: Ignoring already retrieved url: {}", PLUGIN_NAME, this_new_doc.url);
+            continue 'rows_loop;
+        }
 
-        for alink_elem in row_each.select(&alink_selector) {
-            if let Some(href) = alink_elem.value().attr("href") {
-                this_new_doc.url = href.parse().unwrap();
-
-                debug!("{}: checking url: {} if already retrieved? {}", PLUGIN_NAME, this_new_doc.url, already_retrieved_urls.contains(this_new_doc.url.as_str()));
-
-                if already_retrieved_urls.contains(&this_new_doc.url){
-                    info!("{}: Ignoring already retrieved url: {}", PLUGIN_NAME, this_new_doc.url);
-                    continue 'rows_loop;
-                }
-
-                // get content:
-                let html_content = network::http_get(&this_new_doc.url, &client, retry_times, rng.gen_range(wait_time..=(wait_time*3)));
-
-                // from the entire page's html content, save only the div element with class = "Notification-content-wrap"
-                let page_content = scraper::Html::parse_document(html_content.as_str());
-                for page_div in page_content.select(&whole_page_content_selector){
-                    this_new_doc.html_content = page_div.html();
-                }
-                // make full path by joining folder to unique filename
-                let filename = make_unique_filename(&this_new_doc, "json");
-                let json_file_path = Path::new(data_folder).join(filename);
-                this_new_doc.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
-
-                debug!("From listing page {}: got the document url {}, and its content of size: {}",
+        // get content of web page:
+        let html_content = network::http_get(
+            &this_new_doc.url,
+            &client,
+            retry_times,
+            rng.gen_range(wait_time..=(wait_time*3))
+        );
+        // from the entire page's html content, save only the specified div element
+        let page_content = scraper::Html::parse_document(html_content.as_str());
+        for page_div in page_content.select(&whole_page_content_selector){
+            this_new_doc.html_content = page_div.html();
+        }
+        debug!("From listing page {}: got the document url {}, and its content of size: {}",
                     url_listing_page, this_new_doc.url, this_new_doc.html_content.len());
 
-                _ = already_retrieved_urls.insert(this_new_doc.url.clone());
+        _ = already_retrieved_urls.insert(this_new_doc.url.clone());
 
-                debug!("count of urls in set after adding url: {}", already_retrieved_urls.len());
-            }
+        // make full path by joining folder to unique filename
+        let filename = make_unique_filename(&this_new_doc, "json");
+        let json_file_path = Path::new(data_folder).join(filename);
+        this_new_doc.filename = String::from(
+            json_file_path.as_path().to_str().expect("Not able to convert path to string")
+        );
+        load_pdf_content(&mut this_new_doc, &client, data_folder);
+
+        // perform any custom processing of the data in the document:
+        custom_data_processing(&mut this_new_doc);
+
+        // send to queue for data processing pipeline:
+        match tx.send(this_new_doc) {
+            Result::Ok(_res) => {
+                counter += 1;
+                debug!("Sent another document for processing, count so far = {}", counter);
+            },
+            Err(e) => error!("When sending document via channel: {}", e)
         }
-
-        for date_div_elem in row_each.select(&date_selector) {
-            date_str = clean_text(date_div_elem.inner_html());
-            match NaiveDate::parse_from_str(date_str.as_str(), "%b %d, %Y"){
-                Ok(naive_date) => {
-                    this_new_doc.publish_date_ms = to_local_datetime(naive_date).timestamp();
-                    this_new_doc.publish_date = naive_date.format("%Y-%m-%d").to_string();
-                },
-                Err(date_err) => {
-                    error!("Could not parse date '{}', error: {}", date_str.as_str(), date_err)
-                }
-            }
-            debug!("From url {} , identified date = {}, timestamp = {}", this_new_doc.url, date_str, this_new_doc.publish_date_ms);
-        }
-
-        for title_span_elem in row_each.select(&doctitle_selector) {
-            this_new_doc.title = clean_text(get_text_from_element(title_span_elem));
-            this_new_doc.links_inward = vec![url_listing_page.clone()];
-            debug!("{}: Identified title: '{}' for url {}", PLUGIN_NAME, this_new_doc.title, this_new_doc.url);
-        }
-
-        let mut snippet_text = String::from(" ");
-        for snippet_elem in row_each.select(&description_snippet_selector) {
-            let description_snippet = clean_text(
-                get_text_from_element(snippet_elem)
-                )
-                .replace("\r\n", " ")
-                .replace("\n", " ");
-            snippet_text.push_str(" ");
-            snippet_text.push_str(description_snippet.as_str());
-            debug!(" ---Decoding Snippet---: {}", snippet_text);
-            if let Some(caps) = snippet_regex.captures(snippet_text.as_str()) {
-                let id_prefix = caps.get(1).unwrap().as_str();
-                this_new_doc.unique_id = clean_text(caps.get(2).unwrap().as_str().to_string());
-                let pubdate_longformat_str = caps.get(3).unwrap().as_str();
-                this_new_doc.recipients = caps.get(5).unwrap().as_str().to_string();
-                debug!("\tid_prefix: {},\n unique_id: {},\n pubdate_longformat_str: {},\n recipients: {}",
-                    id_prefix, this_new_doc.unique_id, pubdate_longformat_str, this_new_doc.recipients);
-            }
-        }
-
-        for pdf_url_elem in row_each.select(&pdf_link_selector) {
-            if let Some(href) = pdf_url_elem.value().attr("href") {
-                this_new_doc.pdf_url = href.parse().unwrap();
-
-                // get pdf content,
-                let pdf_data = network::http_get_binary(&this_new_doc.pdf_url, client);
-                debug!("From url {}: retrieved pdf file from link: {} of length {} bytes", this_new_doc.url, this_new_doc.pdf_url, pdf_data.len());
-
-                if pdf_data.len() > 1 {
-                    let pdf_filename = make_unique_filename(&this_new_doc, "pdf");
-                    // save to file in data_folder, make full path by joining folder to unique filename
-                    let pdf_file_path = Path::new(data_folder).join(&pdf_filename);
-                    // persist to disk
-                    match File::create(&pdf_file_path) {
-                        Ok(mut pdf_file) => {
-                            debug!("Created pdf file: {:?}, now starting to write data for: '{}' ", pdf_file_path, this_new_doc.title);
-                            match pdf_file.write_all(pdf_data.as_bytes()) {
-                                Ok(_write_res) => info!("From url {}, retrieved pdf file {} and wrote {} bytes to file: {}", this_new_doc.url, this_new_doc.pdf_url, pdf_data.len(), pdf_file_path.as_os_str().to_str().unwrap()),
-                                Err(write_err) => error!("When writing PDF file to disk: {}", write_err)
-                            }
-                        },
-                        Err(file_err) => {
-                            error!("When creating pdf file: {}", file_err);
-                        }
-                    }
-                    // convert to text, populate text field
-                    match extract_text_from_mem(pdf_data.as_bytes()) {
-                        Result::Ok(plaintext) => {
-                            this_new_doc.text = plaintext;
-                        },
-                        Err(outerr) => {
-                            error!("When converting pdf content into text: {}", outerr);
-                        }
-                    }
-                }
-            }
-        }
-
-        new_docs.push(this_new_doc);
     }
-    return new_docs;
+    return counter;
 }
 
 
@@ -366,15 +357,14 @@ fn custom_data_processing(doc_to_process: &mut document::Document){
         // overwrite field with cleaned value
         doc_to_process.recipients = clean_recepients(doc_to_process.recipients.as_str());
     }
+
     doc_to_process.classification.insert("doc_type".to_string(), get_doc_type(doc_to_process.title.as_str()));
 
-    info!("{}: Splitting document '{}' into parts.", PLUGIN_NAME, doc_to_process.title);
-    let mut text_part_counter: usize = 1;
-    for text_part in split_by_word_count(doc_to_process.text.as_str(), 600, 15){
-        doc_to_process.text_parts.push(HashMap::from([("id".to_string(), text_part_counter.to_string()), ("text".to_string(),text_part)]));
-        text_part_counter += 1;
-    }
+    check_and_split_text(doc_to_process);
+
 }
+
+
 
 fn get_doc_type(title: &str) -> String {
     let mut doctype: String = String::from("regulatory-notification");

@@ -13,8 +13,8 @@ use reqwest::blocking::Client;
 
 use crate::{document, network};
 use crate::document::Document;
-use crate::network::make_http_client;
-use crate::utils::{get_data_folder, get_database_filename, get_network_params, get_urls_from_database};
+use crate::network::{make_http_client, read_network_parameters};
+use crate::utils::{get_data_folder, get_database_filename, get_urls_from_database};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_en_in_business_std";
 const PUBLISHER_NAME: &str = "Business Standard";
@@ -37,8 +37,8 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 
     info!("{}: Starting worker", PLUGIN_NAME);
 
-    let (fetch_timeout_seconds, retry_times, wait_time, user_agent, proxy_server) = get_network_params(&app_config);
-    let client = make_http_client(fetch_timeout_seconds, user_agent.as_str(), BASE_URL.to_string(), None);
+    let network_params = read_network_parameters(&app_config);
+    let client = make_http_client(&network_params);
 
     let database_filename = get_database_filename(&app_config);
     let mut already_retrieved_urls = get_urls_from_database(database_filename.as_str(), PLUGIN_NAME);
@@ -50,8 +50,8 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
                 STARTER_URLS,
                 &client,
                 data_folder_name,
-                retry_times,
-                wait_time
+                network_params.retry_times,
+                network_params.wait_time_min
             );
 
             for mut doc_to_process in new_docs {
@@ -71,8 +71,8 @@ fn get_url_listing(
     starter_urls: [(&str, &str); 1],
     client: &reqwest::blocking::Client,
     data_folder: &str,
-    retry_times: u64,
-    wait_time:u64
+    retry_times: usize,
+    wait_time: usize
 ) -> Vec<Document>{
 
     info!("Plugin {}: Getting url listing for {}", PLUGIN_NAME, PUBLISHER_NAME);
@@ -103,7 +103,7 @@ fn get_url_listing(
     return all_docs_from_plugin;
 }
 
-fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, client: &reqwest::blocking::Client, retry_times:u64, wait_time:u64, data_folder: &str) -> Vec<document::Document>{
+fn get_docs_from_listing_page(url_listing_page: &String, section_name: &str, client: &reqwest::blocking::Client, retry_times:usize, wait_time:usize, data_folder: &str) -> Vec<document::Document>{
 
     let mut new_docs: Vec<document::Document> = Vec::new();
 

@@ -6,13 +6,11 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Sender, SendError};
+use std::thread::JoinHandle;
 use {
     regex::Regex,
 };
-
-
-use std::sync::mpsc::{Sender, SendError};
-use std::thread::JoinHandle;
 use config::Config;
 use chrono::Utc;
 use log::{debug, error, info};
@@ -20,7 +18,7 @@ use reqwest::blocking::Client;
 use crate::{document, network};
 use crate::document::Document;
 use crate::network::make_http_client;
-use crate::utils::{get_data_folder, get_network_params, get_urls_from_database};
+use crate::utils::{get_data_folder, get_files_listing_from_dir, get_plugin_config, get_urls_from_database};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_offline_docs";
 const PUBLISHER_NAME: &str = "Read documents from disk";
@@ -29,12 +27,19 @@ const STARTER_URLS: [(&str, &str); 0] = [];
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
     info!("{}: Starting worker", PLUGIN_NAME);
-    // TODO: get parameter load_pdf_files
+    // get parameter file_extension
+    let mut file_extension = String::from("json");
+    match get_plugin_config(&app_config, crate::plugins::mod_en_in_rbi::PLUGIN_NAME, "file_extension"){
+        Some(file_extension_str) => {
+            file_extension =file_extension_str;
+        }, None => {}
+    };
 
     match get_data_folder(&app_config).to_str(){
         Some(data_folder_name) => {
             // read all json docs from data_folder_name and prepare vector of Documents
-            let doc_count = get_and_send_docs_from_data_folder(data_folder_name, tx);
+            let mut all_json_files: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name, file_extension.as_str());
+            let doc_count = get_and_send_docs_from_data_folder(all_json_files, tx);
             info!("{}: processed {} documents.", PLUGIN_NAME, doc_count);
         },
         None => {
@@ -44,41 +49,28 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
     };
 }
 
-fn get_and_send_docs_from_data_folder(data_folder_name: &str, tx: Sender<document::Document>) -> usize{
+
+fn get_and_send_docs_from_data_folder(filepaths_in_dir: Vec<PathBuf>, tx: Sender<document::Document>) -> usize{
 
     let mut new_docs_counter: usize = 0;
 
-    let mut all_json_files: Vec<PathBuf> = Vec::new();
-    // get json file listing from data folder
-    match fs::read_dir(data_folder_name) {
-        Err(e) => error!("When reading json files in data folder {}, error:{}", data_folder_name, e),
-        Ok(dir_entries) => {
-            all_json_files = dir_entries // Filter out all those directory entries which couldn't be read
-                .filter_map(|res| res.ok())
-                // Map the directory entries to paths
-                .map(|dir_entry| dir_entry.path())
-                // Filter out all paths with extensions other than `json`
-                .filter_map(|path| {
-                    if path.extension().map_or(false, |ext| ext == "json") {
-                        Some(path)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-        }
-    }
     // for each file, read contents:
-    for json_file_path in all_json_files{
+    for doc_file_path in filepaths_in_dir {
 
-        let open_file = fs::File::open(json_file_path.clone())
-            .expect("JSON file should open read only");
+        let open_file = fs::File::open(doc_file_path.clone())
+            .expect("File should open read only");
+
+        // TODO: check and implement file extension processing for other file extensions:
         // de-serialize string to Document:
         let mut mydoc: Document = serde_json::from_reader(open_file).expect("JSON was not well-formatted");
+
         // change filename to present filename
-        mydoc.filename = json_file_path.to_string_lossy().parse().unwrap();
+        mydoc.filename = doc_file_path.to_string_lossy().parse().unwrap();
+
         // for each document extracted run function
         custom_data_processing(&mut mydoc);
+
+        // send forward processed document:
         match tx.send(mydoc) {
             Ok(_) => {}
             Err(e) => {error!{"When sending offline document: {}", e}}

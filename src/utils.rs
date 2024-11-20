@@ -5,14 +5,17 @@ extern crate pdf_extract;
 extern crate lopdf;
 
 use std::string::String;
-use std::collections;
+use std::{collections, fs};
 use std::io::BufWriter;
 use std::io::Write;
 use std::path;
 use std::fs::File;
 use std::ops::Add;
 use std::{any::Any, env};
-use std::path::Path;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::borrow::BorrowMut;
+use nom::AsBytes;
 use log::{debug, error, info, LevelFilter, warn};
 use log4rs::append::file::FileAppender;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
@@ -26,13 +29,14 @@ use log4rs::config::{Appender, Root};
 use config::{Config, Environment, FileFormat, Map, Value};
 use config::builder::ConfigBuilder;
 use chrono::{DateTime, Local, MappedLocalTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use pdf_extract::extract_text_from_mem;
+use regex::Regex;
 use rusqlite::{Row, Rows};
 use rusqlite::params;
 use scraper::{ElementRef};
-use uuid::Uuid;
 
-use crate::{document, utils};
-use crate::document::{DocInfo, Document};
+use crate::{document, network, utils};
+use crate::document::{Document};
 
 
 pub fn read_config(cfg_file: String) -> Config{
@@ -53,19 +57,9 @@ pub fn read_config(cfg_file: String) -> Config{
     }
 }
 
-pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) -> DocInfo {
+pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) {
 
     debug!("Writing document from url: {:?}", received.url);
-    let mut docinfo_for_sql = DocInfo{
-        plugin_name: received.module.clone(),
-        url: received.url.clone(),
-        pdf_url: received.pdf_url.clone(),
-        title: received.title.clone(),
-        unique_id: received.unique_id.clone(),
-        publish_date_ms: received.publish_date_ms,
-        filename: received.filename.clone(),
-        section_name: received.section_name.clone(),
-    };
 
     info!("Writing document to file: {}", received.filename);
     // serialize json to string
@@ -77,8 +71,6 @@ pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) -> DocInf
                     match file.write_all(json_data.as_bytes()) {
                         Ok(_write_res) => {
                             debug!("Wrote document from {}, titled '{}' to file: {:?}", received.url, received.title, json_file_path);
-                            docinfo_for_sql.filename = received.filename.clone();
-                            return docinfo_for_sql;
                         },
                         Err(write_err) => error!("When writing file to disk: {}", write_err)
                     }
@@ -90,7 +82,6 @@ pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) -> DocInf
         },
         Err(serderr) => error!("When serialising document to JSON text: {}", serderr)
     }
-    return docinfo_for_sql;
 }
 
 /// Removes any unnecessary whitespaces from the string and returns the cleaned string
@@ -106,50 +97,63 @@ pub fn clean_text(text: String) -> String {
     x.join(" ").trim().to_string()
 }
 
-/// Generates a unique filename from the document structure fields
+/// Generates a unique filename from the document structure fields.
+/// Start building the filename with module and section name.
+/// Then append only last 64 characters or url resource after stripping out special charcters.
+/// To this, calculate and append the hash value of the url, then append publish date to get
+/// the unique filename
 ///
 /// # Arguments
 ///
 /// * `doc_struct`: The document to use for generating the filename
+/// * `extension` : The filename extension
 ///
 /// returns: String
 ///
 /// # Examples
 ///
-/// let filename:String = make_unique_filename(mydoc);
+/// let filename:String = make_unique_filename(mydoc, "json");
 ///
 pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String{
-    // TODO: limit name to 100 characters in length
+    // limit name to given characters in length:
+    let max_characters: usize = 64;
+    let mut filename_prefix = format!("{}_{}_", doc_struct.module, doc_struct.section_name);
+
+    let mut hasher = std::hash::DefaultHasher::new();
+    doc_struct.url.hash(&mut hasher);
+    let mut unique_string = hasher.finish().to_string();
+    unique_string.push_str("_");
+    unique_string.push_str(doc_struct.publish_date.as_str());
+
     match doc_struct.url.rfind('/') {
         Some(slash_pos_in_url) =>{
-            let url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
+            let mut url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
                 .replace(".html", "")
                 .replace(".htm", "")
                 .replace(".php", "")
                 .replace(".aspx", "")
                 .replace(".asp", "")
-                .replace(".jsp", "");
-            if url_resname.len() >1{
-                return format!("{}_{}.{}", doc_struct.module, url_resname, extension);
-            }else{
-                return format!("{}_index.json", doc_struct.module);
-            }
+                .replace(".jsp", "")
+                .replace("/", "")
+                .replace("\\", "")
+                .replace("?", "_")
+                .replace("*", "")
+                .replace(":", "")
+                .replace("%20", "_")
+                .replace("%E2%82%B9", "")
+                .replace("+", "_")
+                .replace("'", "")
+                .replace("–", "_")
+                .replace("__", "_");
+            url_resname = url_resname.chars().rev().take(max_characters).collect();
+            url_resname = url_resname.chars().rev().collect();
+            filename_prefix.push_str(url_resname.as_str());
         }
         None => {
             info!("Could not get unique resource string from url: {}", doc_struct.url);
-            match Uuid::parse_str(&doc_struct.url) {
-                Ok(uuid_str) => {
-                    return format!("{}_{}.json", doc_struct.module, uuid_str.to_string());
-                },
-                Err(e) => {
-                    error!("Could not generate uuid from url: {}", e);
-                    // add current timestamp:
-                    let curr_timestamp = Utc::now().timestamp();
-                    return format!("{}_{}_{}.json", doc_struct.module, doc_struct.publish_date_ms, curr_timestamp);
-                }
-            }
         }
     }
+    return format!("{}_{}.{}", filename_prefix, unique_string.to_string(), extension);
 }
 
 /// Gets all the texts inside an HTML element
@@ -184,116 +188,32 @@ pub fn to_local_datetime(date: NaiveDate) -> DateTime<Local> {
 }
 
 
-/// Extract the plugin's parameters from its entry in the application's config file.
-///
-/// # Arguments
-///
-/// * `plugin_map`: The plugin map of all plugins
-///
-/// returns: (String, String, bool, isize)
-pub fn extract_plugin_params(plugin_map: Map<String, Value>) -> (String, String, bool, isize) {
-    let mut plugin_enabled: bool = false;
-    let mut plugin_priority: isize = 99;
-    let mut plugin_name = String::from("");
-    let mut plugin_type = String::from("retriever");
 
-    match plugin_map.get("name") {
-        Some(name_str) => {
-            plugin_name = name_str.to_string();
-        },
-        None => {
-            error!("Unble to get plugin name from the config! Using default value of '{}'", plugin_name);
+pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) -> Vec<PathBuf> {
+    let mut all_file_paths: Vec<PathBuf> = Vec::new();
+    // get json file listing from data folder
+    match fs::read_dir(data_folder_name) {
+        Err(e) => error!("When getting list of all {} files in data folder {}, error:{}",
+            file_extension, data_folder_name, e),
+        Ok(dir_entries) => {
+            all_file_paths = dir_entries // Filter out all those directory entries which couldn't be read
+                .filter_map(|res| res.ok())
+                // Map the directory entries to paths
+                .map(|dir_entry| dir_entry.path())
+                // Filter out all paths with extensions other than `json`
+                .filter_map(|path| {
+                    if path.extension().map_or(false, |ext| ext == file_extension) {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
         }
     }
-    match plugin_map.get("enabled") {
-        Some(&ref enabled_str) => {
-            match enabled_str.clone().into_bool(){
-                Result::Ok(plugin_enabled_bool) => plugin_enabled = plugin_enabled_bool,
-                Err(e) => error!("In config file, for plugin {}, fix the invalid value of plugin state, value should be either true or false: {}", plugin_name, e)
-            }
-        },
-        None => {
-            error!("Could not interpret whether enabled state is true or false for plugin {}", plugin_name)
-        }
-    }
-    match plugin_map.get("type") {
-        Some(plugin_type_str) => {
-            plugin_type = plugin_type_str.to_string();
-        }
-        None => {
-            error!("Invalid/missing plugin type in config, Using default value = '{}'",
-                            plugin_type);
-        }
-    }
-    match plugin_map.get("priority") {
-        Some(&ref priority_str) => {
-            match priority_str.clone().into_int(){
-                Result::Ok(priority_int ) => plugin_priority = priority_int as isize,
-                Err(e) => error!("In config file, for plugin {}, fix the priority value of plugin state; value should be positive integer: {}", plugin_name, e)
-            }
-        },
-        None => {
-            error!("Could not interpret priority for plugin {}", plugin_name)
-        }
-    }
-    return (plugin_name, plugin_type, plugin_enabled, plugin_priority)
+    return all_file_paths;
 }
 
-
-/// Get configuration parameters for network communication
-///
-/// # Arguments
-///
-/// * `config_clone`:
-///
-/// returns: (u64, u64, u64, String)
-///
-/// # Examples
-///
-/// ```
-///
-/// ```
-pub fn get_network_params(config_clone: &Config) -> (u64, u64, u64, String, Option<String>) {
-    let mut fetch_timeout_seconds: u64 = 20;
-    let mut user_agent:String = String::from("Mozilla");
-    let mut proxy_url:Option<String> = None;
-    let retry_times: u64 = 3;
-    let wait_time: u64 = 2;
-
-    match config_clone.get_int("fetch_timeout") {
-        Ok(config_timeout) =>{
-            if config_timeout > 0{
-                fetch_timeout_seconds = config_timeout.unsigned_abs();
-            }
-        },
-        Err(ex) =>{
-            info!("Using default timeout of {} due to error fetching timeout from config: {}",
-                fetch_timeout_seconds,
-                ex)
-        }
-    }
-
-    match config_clone.get_string("user_agent") {
-        Ok(user_agent_configured) => {
-            user_agent.clear();
-            user_agent.push_str(&user_agent_configured);
-        },
-        Err(e) => {
-            error!("When extracting user agent from config: {:?}", e)
-        }
-    }
-
-    match config_clone.get_string("proxy_server_url") {
-        Ok(proxy_server_url) => {
-            proxy_url = Some(proxy_server_url);
-        },
-        Err(e) => {
-            info!("Could not identify proxy server url from config, not using proxy, error was: {:?}", e)
-        }
-    }
-
-    return (fetch_timeout_seconds, retry_times, wait_time, user_agent, proxy_url);
-}
 
 pub fn get_data_folder(config: &Config) -> std::path::PathBuf {
     match config.get_string("data_dir") {
@@ -364,7 +284,7 @@ pub fn get_urls_from_database(sqlite_filename: &str, module_name: &str) -> colle
 /// * `processed_docinfos`: The DocInfo struct that contains the url and corresponding details
 ///
 /// returns: u64
-pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos: &Vec<document::DocInfo>) -> u64 {
+pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos: &[Document]) -> usize {
     // get the database filename form config file, or else create one in present directory "newslookout_urls.db":
     let mut database_fullpath = String::from("newslookout_urls.db");
     match config.get_string("completed_urls_datafile") {
@@ -386,7 +306,7 @@ pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos:
                                                 filename varchar(256)
                                              )",
                                  []);
-            let mut counter: u64 = 0;
+            let mut counter: usize = 0;
             debug!("Started writing urls into table.");
             for doc_info in processed_docinfos {
                 let mut pubdate_yyyymmdd = String::from("1970-01-01");
@@ -396,13 +316,13 @@ pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos:
                 }
                 match conn.execute(
                     "INSERT INTO completed_urls (url, plugin, pubdate, section_name, title, unique_id, filename) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [doc_info.url.as_str(), doc_info.plugin_name.as_str(), pubdate_yyyymmdd.as_str(), doc_info.section_name.as_str(), doc_info.title.as_str(), doc_info.unique_id.as_str(), doc_info.filename.as_str()],
+                    [doc_info.url.as_str(), doc_info.module.as_str(), pubdate_yyyymmdd.as_str(), doc_info.section_name.as_str(), doc_info.title.as_str(), doc_info.unique_id.as_str(), doc_info.filename.as_str()],
                 ){
                     Result::Ok(_) => counter += 1,
                     Err(e) => error!("When inserting new url {} to table: {}", doc_info.url, e)
                 }
             }
-            info!("Closing database connection after writing {} urls to table.", counter);
+            debug!("Closing database connection after writing {} urls to table.", counter);
             let _ = conn.close();
             // return count of records inserted
             return counter;
@@ -414,12 +334,44 @@ pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos:
     return 0;
 }
 
-pub fn extract_text_from_html(html_content: &str) -> String{
-    let html_root_elem = scraper::html::Html::parse_document(html_content);
-    // TODO: apply text density calculations, and
-    // position based heuristics to identify relevant content to extract
-    return get_text_from_element(html_root_elem.root_element());
+
+pub fn extract_text_from_pdf(pdf_file_path: PathBuf, txt_file_path: PathBuf) -> String {
+    // read PDF data from file:
+    // create a text file to hold output from pdf extraction:
+    let mut output_file = BufWriter::new(File::create(&txt_file_path)
+        .expect("could not create text file"));
+    // prepare buffer for text
+    let mut output = pdf_extract::PlainTextOutput::new(
+        &mut output_file as &mut dyn std::io::Write);
+    // load the pdf file
+    let doc = pdf_extract::Document::load(pdf_file_path).unwrap();
+    debug!("Converting pdf to text file: {:?}", txt_file_path);
+    // extract the text:
+    pdf_extract::output_doc(&doc, output.borrow_mut())
+        .expect("Could not convert to text file");
+    let plaintext = fs::read_to_string(&txt_file_path)
+        .expect("Could not read text from pdf.");
+    match fs::remove_file(txt_file_path){
+        Ok(_) => {}
+        Err(e) => {error!("When deleting txt file extract from pdf: {}", e)}
+    }
+    return plaintext;
 }
+
+pub fn retrieve_pdf_content(pdf_url: &str, client: &reqwest::blocking::Client) -> (bytes::Bytes, String) {
+    let pdf_data = network::http_get_binary(&pdf_url.to_string(), client);
+    // convert to text, populate text field
+    match extract_text_from_mem(pdf_data.as_bytes()) {
+        Result::Ok(plaintext) => {
+            return (pdf_data, plaintext);
+        },
+        Err(outerr) => {
+            error!("When converting pdf content into text: {}", outerr);
+        }
+    }
+    return (pdf_data, String::new());
+}
+
 
 fn check_valid_word(word: &str, alpha_pattn: &regex::Regex) -> bool {
     // ignore if alphanumeric or numeric or punctuations
@@ -448,13 +400,15 @@ pub fn get_last_n_words(text_str: &str, count_n:usize) -> String {
     return last_n_words_rev.into_iter().rev().collect::<Vec<&str>>().join(" ");
 }
 
-pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_overlap: usize) -> Vec<String> {
+pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_overlap: usize, some_regex: Option<Regex>) -> Vec<String> {
 
     let mut buffer_wc:usize = 0;
     let mut buffer = String::new();
     let mut overlap_buffer = String::from("");
     let mut overlap_buffer_wc:usize = 0;
     let mut previous_overlap_text = String::from("");
+
+    // TODO: if some_regex is not None, then first split by regex, then split by double lines for the parts that are prceeding regex:
 
     // initial split by double lines:
     let text_parts_stage1 = text.split("\n\n");
@@ -634,30 +588,6 @@ pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String,
 }
 
 
-pub fn build_llm_prompt(model_name: &str, system_context: &str, user_context: &str, input_text: &str) -> String {
-    if model_name.contains("llama") {
-        return prepare_llama_prompt(system_context, user_context, input_text);
-    } else if model_name.contains("gemma") {
-        return prepare_gemma_prompt(system_context, user_context, input_text);
-    }
-    else {
-        return format!("{}\n{}\n{}", system_context, user_context, input_text).to_string();
-    }
-}
-
-pub fn prepare_gemma_prompt(system_context: &str, user_context: &str, input_text: &str) -> String{
-    return format!("<start_of_turn>user\
-        {}\
-        \
-        {}<end_of_turn><start_of_turn>model", user_context, input_text).to_string();
-}
-
-pub fn prepare_llama_prompt(system_context: &str, user_context: &str, input_text: &str) -> String {
-    return format!("<|begin_of_text|><|start_header_id|>system<|end_header_id|>{}\
-        <|eot_id|><|start_header_id|>user<|end_header_id|>{}\
-        \n\n{}<|eot_id|> <|start_header_id|>assistant<|end_header_id|>", system_context, user_context, input_text).to_string();
-}
-
 
 // Description of Tests:
 // These unit tests verify the functions in this module.
@@ -696,7 +626,7 @@ mod tests {
     fn test_split_by_word_count_with_overlap(){
         let para2 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
         let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1  1  lazy\n\n dog.\n\n"];
-        let result2 = utils::split_by_word_count(para2, 3, 1);
+        let result2 = utils::split_by_word_count(para2, 3, 1, None);
         println!("Word split result = {:?}", result2);
         assert_eq!(result2, para2_expected_answer, "Did not split text into parts by word limit and overlap");
     }
@@ -706,7 +636,7 @@ mod tests {
         let para3 = "one \n\n two \n\n three \n\n four \n\n five \n\n six \n\n seven \n\n eight \n\n nine \n\n ten \n\n eleven \n\n twelve \n\n thirteen \n\n fourteen \n\n fifteen \n\n";
         // test for overlap inclusion:
         let para3_expected_answer = vec![" one \n\n two \n\n three \n\n four \n\n five ", "  four   five   six \n\n seven \n\n eight ", "  seven   eight   nine \n\n ten \n\n eleven ", "  ten   eleven   twelve \n\n thirteen \n\n fourteen    thirteen   fourteen   fifteen \n\n"];
-        let result3 = utils::split_by_word_count(para3, 5, 2);
+        let result3 = utils::split_by_word_count(para3, 5, 2, None);
         println!("Word split result = {:?}", result3);
         assert_eq!(result3, para3_expected_answer, "Did not split text into parts correctly by word limit and overlap");
     }
@@ -764,12 +694,14 @@ mod tests {
     #[test]
     fn test_make_unique_filename(){
         let mut example1 = document::new_document();
-        example1.filename = "one_value".to_string();
-        example1.url = "https://www.www.com/sub/page-name.html".to_string();
+        example1.filename = "master-direction-on-currency-distribution-amp-exchange-scheme-cdes-for-bank-branches-including-currency-chests-based-on-performance-in-rendering-customer-service-to-members-of-public-12055".to_string();
+        example1.url = "https://website.rbi.org.in/web/rbi/-/notifications/master-direction-on-currency-distribution-amp-exchange-scheme-cdes-for-bank-branches-including-currency-chests-based-on-performance-in-rendering-customer-service-to-members-of-public-12055".to_string();
         example1.module = "mod_dummy".to_string();
+        example1.section_name = "some_section".to_string();
         example1.publish_date_ms = 1010;
+        let example1_expected_filename = "mod_dummy_some_section_ormance-in-rendering-customer-service-to-members-of-public-12055_1970-01-01.json";
         let example1_result = make_unique_filename(&example1, "json");
         println!("output filename: {}", example1_result);
-        assert_eq!(example1_result, "mod_dummy_page-name.json".to_string(), "Unable to set the filename correctly.")
+        assert_eq!(example1_result, example1_expected_filename.to_string(), "Unable to set the filename correctly.")
     }
 }

@@ -38,27 +38,27 @@ use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
-use crate::document::DocInfo;
+use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPlugin, start_data_pipeline};
 
 pub mod plugins {
     pub(crate) mod mod_en_in_rbi;
     pub(crate) mod mod_en_in_business_standard;
-    pub(crate) mod mod_offline_docs;
-    pub(crate) mod mod_classify;
+    pub mod mod_offline_docs;
+    pub mod mod_classify;
     pub(crate) mod mod_dataprep;
-    pub(crate) mod mod_dedupe;
-    pub mod mod_ollama;
-    pub mod mod_chatgpt;
-    pub mod mod_gemini;
-    pub(crate) mod mod_solrsubmit;
-    pub(crate) mod mod_persist_data;
+    pub mod mod_dedupe;
+    pub mod mod_vectorstore;
+    pub mod mod_summarize;
+    pub mod mod_solrsubmit;
+    pub mod mod_persist_data;
 }
 
 pub mod network;
 pub mod utils;
 pub mod llm;
 pub mod document;
-mod queue;
+pub mod html_extract;
+pub mod pipeline;
 
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -82,13 +82,18 @@ const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 /// let config = utils::read_config(configfile);<br/>
 /// newslookout::run_app(config);</tt>
 ///
-pub fn run_app(config: config::Config) -> Vec<DocInfo> {
+pub fn load_and_run_pipeline(config: config::Config) -> Vec<document::Document> {
 
     init_logging(&config);
     init_pid_file(&config);
-    log::info!("Starting the {} data pipeline, library v{}", CARGO_PKG_NAME.to_uppercase(), VERSION);
+    log::info!("Starting the data pipeline, library v{}", VERSION);
 
-    let docs_retrieved = queue::start_pipeline(config.clone());
+    let retriever_plugins = load_retriever_plugins(&config);
+    let data_proc_plugins = load_dataproc_plugins(&config);
+
+    let docs_retrieved = start_data_pipeline(retriever_plugins,
+                                                       data_proc_plugins,
+                                                       &config);
 
     log::info!("Data pipeline completed processing {} documents.", docs_retrieved.len());
 
@@ -107,7 +112,7 @@ pub fn run_app(config: config::Config) -> Vec<DocInfo> {
 ///
 /// returns: ()
 ///
-pub(crate) fn init_logging(config: &Config){
+pub fn init_logging(config: &Config){
     // setup logging:
     match config.get_string("log_file"){
         Ok(logfile) =>{
@@ -180,7 +185,7 @@ pub(crate) fn init_logging(config: &Config){
     }
 }
 
-pub(crate) fn init_pid_file(config: &Config){
+pub fn init_pid_file(config: &Config){
     // setup PID file:
     match config.get_string("pid_file"){
         Ok(pidfile_name) =>{
@@ -222,7 +227,7 @@ pub(crate) fn init_pid_file(config: &Config){
 ///
 /// returns: ()
 ///
-pub(crate) fn cleanup_pid_file(config: &Config){
+pub fn cleanup_pid_file(config: &Config){
     match config.get_string("pid_file"){
         Ok(pidfile) =>{
             match std::fs::remove_file(&pidfile) {
@@ -244,12 +249,12 @@ pub(crate) fn cleanup_pid_file(config: &Config){
 #[cfg(test)]
 mod tests {
     use std::io::empty;
-    use crate::run_app;
+    use crate::load_and_run_pipeline;
 
     #[test]
     fn test_1() {
         let empty_cfg = config::Config::builder().build().unwrap();
-        let docs = run_app(empty_cfg);
+        let docs = load_and_run_pipeline(empty_cfg);
         assert_eq!(docs.len(), 0);
     }
 }

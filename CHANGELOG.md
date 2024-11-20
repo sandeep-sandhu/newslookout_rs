@@ -1,5 +1,13 @@
 # Change Log
 
+### Release 0.3.2
+  - Bug fixes and patches for previous release
+  - Add methods in chatgpt for api calls, use #tests to check these out.
+  - Add methods in gemini for api calls, use #tests to check these out.
+  - Before retrieving pdf, check if exists, dont retrieve and overwrite if so.
+  - Move persist to disk to its own module, options: disk json, disk xml, database table, AWS bucket, etc. functionality to last data proc plugin.
+  - Enhanced filename generation logic: limit file name length, after module and section name, keep only last 64 characters or url resource after stripping out special charcters, then append hash value of url, then append date at the end.
+  - Removed docinfo, keep original complete document
 
 ### Release 0.3.0
   - Added plugins to generate content using ChatGPT

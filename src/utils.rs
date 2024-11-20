@@ -699,7 +699,7 @@ mod tests {
         example1.module = "mod_dummy".to_string();
         example1.section_name = "some_section".to_string();
         example1.publish_date_ms = 1010;
-        let example1_expected_filename = "mod_dummy_some_section_ormance-in-rendering-customer-service-to-members-of-public-12055_1970-01-01.json";
+        let example1_expected_filename = "mod_dummy_some_section_ormance-in-rendering-customer-service-to-members-of-public-12055_1400996662519724217_1970-01-01.json";
         let example1_result = make_unique_filename(&example1, "json");
         println!("output filename: {}", example1_result);
         assert_eq!(example1_result, example1_expected_filename.to_string(), "Unable to set the filename correctly.")

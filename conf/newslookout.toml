@@ -114,7 +114,7 @@ plugins = [
  , {"enabled"=false, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=false, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "maxpages"=5, "items_per_page"=5}
- , {"enabled"=false, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json"}
+ , {"enabled"=false, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "published_in_past_days"=2}
  # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
  , {"enabled"=true, "name"="mod_dataprep", "type"="data_processor", "priority"=1}

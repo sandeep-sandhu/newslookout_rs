@@ -15,6 +15,7 @@ use std::{any::Any, env};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::borrow::BorrowMut;
+use std::collections::HashMap;
 use nom::AsBytes;
 use log::{debug, error, info, LevelFilter, warn};
 use log4rs::append::file::FileAppender;
@@ -335,6 +336,65 @@ pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos:
 }
 
 
+/// Extract content of the associated PDF file mentioned in the document's pdf_url attribute
+/// Converts to text and saves it to the document 'text' attribute.
+/// The PDF content is saved as a file in the data_folder.
+///
+/// # Arguments
+///
+/// * `input_doc`: The document to read
+/// * `client`: The HTTP(S) client for fectching the web content via GET requests
+/// * `data_folder`: The data folder where the PDF files are to be saved.
+///
+/// returns: ()
+pub fn load_pdf_content(
+    mut input_doc: &mut Document,
+    client: &reqwest::blocking::Client,
+    data_folder: &str)
+{
+    if input_doc.pdf_url.len() > 4 {
+        let pdf_filename = make_unique_filename(&input_doc, "pdf");
+        // save to file in data_folder, make full path by joining folder to unique filename
+        let pdf_file_path = Path::new(data_folder).join(&pdf_filename);
+        // check if pdf already exists, if so, do not retrieve again:
+        if Path::exists(pdf_file_path.as_path()){
+            info!("Not retrieving PDF since it already exists: {:?}", pdf_file_path);
+            if input_doc.text.len() > 1 {
+                let txt_filename = make_unique_filename(&input_doc, "txt");
+                let txt_file_path = Path::new(data_folder).join(&txt_filename);
+                input_doc.text = extract_text_from_pdf(pdf_file_path, txt_file_path);
+            }
+        }else {
+            // get pdf content, and its plaintext output
+            let (pdf_data, plaintext) = retrieve_pdf_content(&input_doc.pdf_url, client);
+            input_doc.text = plaintext;
+            debug!("From url {}: retrieved pdf file from link: {} of length {} bytes",
+                input_doc.url, input_doc.pdf_url, pdf_data.len()
+            );
+            if pdf_data.len() > 1 {
+                // persist to disk
+                match File::create(&pdf_file_path) {
+                    Ok(mut pdf_file) => {
+                        debug!("Created pdf file: {:?}, now starting to write data for: '{}' ",
+                            pdf_file_path, input_doc.title
+                        );
+                        match pdf_file.write_all(pdf_data.as_bytes()) {
+                            Ok(_write_res) => info!("From url {} wrote {} bytes to file: {}",
+                                input_doc.pdf_url, pdf_data.len(),
+                                pdf_file_path.as_os_str().to_str().unwrap()),
+                            Err(write_err) => error!("When writing PDF file to disk: {}",
+                                write_err)
+                        }
+                    },
+                    Err(file_err) => {
+                        error!("When creating pdf file: {}", file_err);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn extract_text_from_pdf(pdf_file_path: PathBuf, txt_file_path: PathBuf) -> String {
     // read PDF data from file:
     // create a text file to hold output from pdf extraction:
@@ -400,6 +460,32 @@ pub fn get_last_n_words(text_str: &str, count_n:usize) -> String {
     return last_n_words_rev.into_iter().rev().collect::<Vec<&str>>().join(" ");
 }
 
+pub fn split_by_regex(input_text: String, regex_pattn: Regex) -> Vec<String> {
+
+    let mut text_parts_stage1: Vec<String> = Vec::new();
+
+    // initialise previous match start to beginning of text
+    let mut previous_start_idx: usize = 0;
+    let mut previous_end_idx: usize = 0;
+    let mut curr_match_start: usize = 0;
+
+    // search for pattern in text beginning from the end of previous matching pattern:
+    for item in regex_pattn.find_iter(&input_text[previous_end_idx..]){
+        let range = item.range();
+        // calculate absolute index of current match start:
+        curr_match_start = range.start;
+        debug!("curr_match_start = {}, item={:?}", curr_match_start, item);
+        // append to collection, the part from previous match start till this current match start
+        text_parts_stage1.push(input_text[previous_start_idx..curr_match_start].to_string());
+        // update previous match starts and ends for next iteration:
+        previous_start_idx = curr_match_start;
+        previous_end_idx = range.end;
+    }
+    text_parts_stage1.push(input_text[previous_start_idx..].to_string());
+
+    return text_parts_stage1;
+}
+
 pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_overlap: usize, some_regex: Option<Regex>) -> Vec<String> {
 
     let mut buffer_wc:usize = 0;
@@ -407,16 +493,35 @@ pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_over
     let mut overlap_buffer = String::from("");
     let mut overlap_buffer_wc:usize = 0;
     let mut previous_overlap_text = String::from("");
+    let mut text_parts_stage1: Vec<String> = text.split("\n\n").map(|x| x.to_string() ).collect::<Vec<String>>();
 
-    // TODO: if some_regex is not None, then first split by regex, then split by double lines for the parts that are prceeding regex:
-
-    // initial split by double lines:
-    let text_parts_stage1 = text.split("\n\n");
+    //if some_regex is not None, then:
+    if let Some(initial_split_regex) = some_regex {
+        // first split by regex:
+        let text_parts_init: Vec<String> = split_by_regex(text.to_string(), initial_split_regex);
+        debug!("Regex initial split into #{} parts", text_parts_init.len());
+        // then split by double lines, those parts that are prceeding regex:
+        let mut flag_is_first = true;
+        for part in text_parts_init{
+            if flag_is_first == true {
+                // split only the first part by double lines, put into vector:
+                debug!("___Splitting first part: {}", part);
+                let splits = part.split("\n\n").map(|x| x.to_string() ).collect::<Vec<String>>();
+                text_parts_stage1 = splits.clone();
+                debug!("Resulting splits: {:?}", text_parts_stage1);
+                flag_is_first = false;
+            }else{
+                // all other parts, append to end of vector
+                debug!("___Adding remaining parts: {}", part);
+                text_parts_stage1.push(part);
+            }
+        }
+    }
 
     let mut text_parts_stage2: Vec<String> = Vec::new();
     // merge these split parts based on word count limit:
     for text_block in text_parts_stage1 {
-        let this_blocks_word_count:usize = word_count(*&text_block);
+        let this_blocks_word_count:usize = word_count(text_block.as_str());
         if (buffer_wc + previous_overlap >= max_words_per_split) &
             (this_blocks_word_count + buffer_wc < max_words_per_split) {
             // if so, then start keeping this and following blocks as overlap
@@ -465,13 +570,13 @@ pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_over
             if this_blocks_word_count < previous_overlap{
                 previous_overlap_text = text_block.to_string();
             }else {
-                previous_overlap_text = get_last_n_words(text_block, previous_overlap);
+                previous_overlap_text = get_last_n_words(text_block.as_str(), previous_overlap);
             }
         };
     }
     // add remainder into array of text parts:
     if buffer_wc > 0 {
-        // TODO: add remainder into previously added part in vector: text_parts_stage2
+        // add remainder into previously added part in vector: text_parts_stage2
         append_with_last_element(&mut text_parts_stage2, buffer);
         // add as the last element of array
         // text_parts_stage2.push(buffer);
@@ -587,14 +692,60 @@ pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String,
     return (summary_part_context, insights_part_context, summary_exec_context, system_context);
 }
 
+pub fn get_text_using_ocr(){
+    // TODO: extract text from image:
 
+    // let mut tesseract_args = rusty_tesseract::Args {
+    //     lang: "eng".to_string(),
+    //
+    //     //map of config variables
+    //     //this example shows a whitelist for the normal alphabet. Multiple arguments are allowed.
+    //     //available arguments can be found by running 'rusty_tesseract::get_tesseract_config_parameters()'
+    //     config_variables: HashMap::from([(
+    //         "tessedit_char_whitelist".into(),
+    //         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".into(),
+    //     )]),
+    //     dpi: Some(150),       // specify DPI for input image
+    //     psm: Some(6),         // define page segmentation mode 6 (i.e. "Assume a single uniform block of text")
+    //     oem: Some(3),         // define optical character recognition mode 3 (i.e. "Default, based on what is available")
+    // };
+}
+
+pub fn check_and_fix_url(url_to_check: &str, base_url: &str) -> Option<String> {
+    const ROOT_FOLDER: &str = "/";
+    const JAVASCRIPT_CODE: &str = "javascript:";
+
+    // check if url starts with base_url, then all is ok
+    if url_to_check.starts_with(base_url) {
+        return Some(url_to_check.to_string());
+    }
+    else if url_to_check.starts_with(ROOT_FOLDER) {
+
+        // else, if relative url starts with root folder, then replace root folder with base url
+        let mut full_url = String::from(base_url);
+
+        // remove root folder part and add remaining part of url string to the base_url:
+        full_url.push_str(&url_to_check[ROOT_FOLDER.len()..]);
+
+        return Some(full_url.to_string());
+    }
+
+    // reject javascript code links:
+    if url_to_check.starts_with(JAVASCRIPT_CODE) {
+        return None;
+    }
+
+    // default is to return None if none of these conditions match
+    return None;
+}
 
 // Description of Tests:
 // These unit tests verify the functions in this module.
 #[cfg(test)]
 mod tests {
+    use regex::Regex;
     use crate::{document, utils};
-    use crate::utils::{append_with_last_element, get_last_n_words, make_unique_filename};
+    use crate::utils::{append_with_last_element, check_and_fix_url, get_last_n_words, make_unique_filename, split_by_regex};
 
     #[test]
     fn test_to_local_datetime() {
@@ -627,7 +778,7 @@ mod tests {
         let para2 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
         let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1  1  lazy\n\n dog.\n\n"];
         let result2 = utils::split_by_word_count(para2, 3, 1, None);
-        println!("Word split result = {:?}", result2);
+        // debug!("Word split result = {:?}", result2);
         assert_eq!(result2, para2_expected_answer, "Did not split text into parts by word limit and overlap");
     }
 
@@ -637,7 +788,7 @@ mod tests {
         // test for overlap inclusion:
         let para3_expected_answer = vec![" one \n\n two \n\n three \n\n four \n\n five ", "  four   five   six \n\n seven \n\n eight ", "  seven   eight   nine \n\n ten \n\n eleven ", "  ten   eleven   twelve \n\n thirteen \n\n fourteen    thirteen   fourteen   fifteen \n\n"];
         let result3 = utils::split_by_word_count(para3, 5, 2, None);
-        println!("Word split result = {:?}", result3);
+        // debug!("Word split result = {:?}", result3);
         assert_eq!(result3, para3_expected_answer, "Did not split text into parts correctly by word limit and overlap");
     }
 
@@ -701,7 +852,47 @@ mod tests {
         example1.publish_date_ms = 1010;
         let example1_expected_filename = "mod_dummy_some_section_ormance-in-rendering-customer-service-to-members-of-public-12055_1400996662519724217_1970-01-01.json";
         let example1_result = make_unique_filename(&example1, "json");
-        println!("output filename: {}", example1_result);
+        // debug!("output filename: {}", example1_result);
         assert_eq!(example1_result, example1_expected_filename.to_string(), "Unable to set the filename correctly.")
     }
+
+    #[test]
+    fn test_split_be_regex(){
+        let example1 = "one two three\n \nAnnex 2\nfour five\nsix\n \nAppendix C\nseven\neight nine ten\n eleven".to_string();
+        //                                 ^12        ^21               ^36          ^47
+        let regexpattn = Regex::new(
+            r"(\n \nAnnex[ure]* |\n \nAppendix )"
+        ).expect("A valid regex for annexures");
+        let resultvec = split_by_regex(example1, regexpattn);
+        let expected_result1 = vec![
+            "one two three".to_string(),
+            "\n \nAnnex 2\nfour five\nsix".to_string(),
+            "\n \nAppendix C\nseven\neight nine ten\n eleven".to_string()
+        ];
+        assert_eq!(resultvec[0],expected_result1[0]);
+        assert_eq!(resultvec[1],expected_result1[1]);
+        assert_eq!(resultvec[2],expected_result1[2]);
+    }
+
+    #[test]
+    fn test_check_and_fix_url(){
+        let example1 = "javascript:runfunction();";
+        let example2 = "/one/relative/url";
+        let example3 = "another/relative/url";
+        let example4 = "https://website.rbi.org.in/valid/url";
+        let base_url = "https://website.rbi.org.in/";
+        assert_eq!(check_and_fix_url(example1, base_url),
+                   None,
+                   "Could not detect javascript code link.");
+        assert_eq!(check_and_fix_url(example2, base_url),
+                   Some("https://website.rbi.org.in/one/relative/url".to_string()),
+                   "Could not fix relative url starting from root.");
+        assert_eq!(check_and_fix_url(example3, base_url),
+                   None,
+                   "Could not detect relative url not starting at root.");
+        assert_eq!(check_and_fix_url(example4, base_url),
+                   Some("https://website.rbi.org.in/valid/url".to_string()),
+                   "Could not detect valid url.");
+    }
+
 }

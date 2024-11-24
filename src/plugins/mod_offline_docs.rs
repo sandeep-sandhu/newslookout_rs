@@ -47,11 +47,10 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 
     match get_data_folder(&app_config).to_str(){
         Some(data_folder_name) => {
+            // read all docs from data_folder_name and prepare vector of Documents
+            let all_files_in_dir: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name, file_extension.as_str());
 
-            // read all json docs from data_folder_name and prepare vector of Documents
-            let mut all_json_files: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name, file_extension.as_str());
-
-            let doc_count = get_and_send_docs_from_data_folder(all_json_files, tx, published_in_past_days);
+            let doc_count = get_and_send_docs_from_data_folder(all_files_in_dir, tx, file_extension.as_str(), published_in_past_days);
 
             info!("{}: processed {} documents.", PLUGIN_NAME, doc_count);
         },
@@ -63,60 +62,104 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 }
 
 
-fn get_and_send_docs_from_data_folder(filepaths_in_dir: Vec<PathBuf>, tx: Sender<document::Document>, published_in_past_days: usize) -> usize{
+fn get_and_send_docs_from_data_folder(filepaths_in_dir: Vec<PathBuf>, tx: Sender<document::Document>, file_extension: &str, published_in_past_days: usize) -> usize{
 
     let mut new_docs_counter: usize = 0;
+    let mut filename = String::new();
 
     // for each file, read contents:
     for doc_file_path in filepaths_in_dir {
 
-        let open_file = fs::File::open(doc_file_path.clone())
-            .expect("File should open read only");
-
-        // TODO: check and implement file extension processing for other file extensions:
-        // de-serialize string to Document:
-        let mut mydoc: Document = serde_json::from_reader(open_file).expect("JSON was not well-formatted");
-
-        // change filename to present filename
-        mydoc.filename = doc_file_path.to_string_lossy().parse().unwrap();
-
-        // for each document extracted, run this function:
-        custom_data_processing(&mut mydoc);
-
-        // send only those files that were published within the past 'published_in_past_days' days:
-        if check_pubdate_within_days(mydoc.publish_date_ms, published_in_past_days as i64) {
-            // send forward processed document:
-            match tx.send(mydoc) {
-                Ok(_) => {}
-                Err(e) => { error! {"When sending offline document: {}", e} }
-            }
-            new_docs_counter += 1;
+        match doc_file_path.to_string_lossy().parse(){
+            Ok(parsed_file_path) => filename = parsed_file_path,
+            Err(e) => error!("Unable to convert file path to text: {}", e)
         }
-        else{
-            info!("{}: not processing document titled '{}' published before {} days.",
-                PLUGIN_NAME, mydoc.title, published_in_past_days);
+
+        if let Some(mut doc_read_from_file) = load_document_from_file(
+            doc_file_path, filename.clone(), file_extension
+        ) {
+
+            // change filename to present filename
+            doc_read_from_file.filename = filename.clone();
+
+            // for each document extracted, run this data processing function:
+            custom_data_processing(&mut doc_read_from_file);
+
+            // send only those files that were published within the past 'published_in_past_days' days:
+            if check_pubdate_within_days(doc_read_from_file.publish_date_ms, published_in_past_days as i64) {
+                // send forward processed document:
+                match tx.send(doc_read_from_file) {
+                    Ok(_) => {}
+                    Err(e) => error!("When sending offline document: {}", e)
+                }
+                new_docs_counter += 1;
+            } else {
+                info!("{}: Ignoring document titled '{}' published more than {} days ago.",
+                                        PLUGIN_NAME, doc_read_from_file.title, published_in_past_days);
+            }
         }
     }
     return new_docs_counter;
 }
 
+fn load_document_from_file(doc_file_path: PathBuf, filename: String, file_extension: &str) -> Option<Document>{
+
+    match fs::File::open(doc_file_path.clone()){
+        Ok(open_file) => {
+
+            fs::File::open(doc_file_path.clone());
+
+            // check and implement file extension processing for other file extensions:
+            match file_extension{
+                "json" => {
+                    // de-serialize string to Document:
+                    match serde_json::from_reader(open_file) {
+                        Result::Ok(mut doc_loaded_from_file) => {
+                            return Some(doc_loaded_from_file);
+                        }
+                        Err(e) => error!("When trying to read JSON file {}: {}", filename, e),
+                    }
+                },
+                _ => error!("Cannot process unknown file extension: {}", file_extension)
+            }
+        }
+        Err(e) => error!("When trying to open file {}: {}", filename, e),
+    }
+    return None;
+}
+
+/// Check whether the published date was within the given past number of days.
+///
+/// # Arguments
+///
+/// * `pubdate_ms`: Published date as times in seconds since epoch.
+/// * `published_within_days`: No of days before the current time.
+///
+/// returns: bool
 fn check_pubdate_within_days(pubdate_ms: i64, published_within_days: i64) -> bool {
     let timenow = chrono::Utc::now();
-    let publish_date = chrono::DateTime::from_timestamp(pubdate_ms,0).unwrap();
-    let cutoff_date = timenow.add(TimeDelta::days(-1*published_within_days));
-    match publish_date.cmp(&cutoff_date) {
-        Ordering::Less => {
-            println!("{} < {}", publish_date, cutoff_date);
+    match chrono::DateTime::from_timestamp(pubdate_ms,0){
+        None => {
+            error!("Counld not convert timestamp {} to date, hence ignoring file", pubdate_ms);
             return false;
         },
-        Ordering::Equal => {
-            println!("{} == {}", publish_date, cutoff_date);
-            return true;
-        },
-        Ordering::Greater => {
-            println!("{} > {}", publish_date, cutoff_date);
-            return true;
-        },
+        Some(publish_date) => {
+            let cutoff_date = timenow.add(TimeDelta::days(-1*published_within_days));
+            match publish_date.cmp(&cutoff_date) {
+                Ordering::Less => {
+                    debug!("Publish date {} < Cutoff date {}", publish_date, cutoff_date);
+                    return false;
+                },
+                Ordering::Equal => {
+                    debug!("Publish date {} == Cutoff date {}", publish_date, cutoff_date);
+                    return true;
+                },
+                Ordering::Greater => {
+                    debug!("Publish date {} > Cutoff date {}", publish_date, cutoff_date);
+                    return true;
+                },
+            }
+        }
     }
 }
 
@@ -124,7 +167,7 @@ fn custom_data_processing(mydoc: &mut document::Document){
 
     info!("{}: processing url document with title - '{}'", PLUGIN_NAME, mydoc.title);
 
-    // implement any custom data processing
+    // implement any custom data processing here
 
 }
 
@@ -150,6 +193,6 @@ mod tests {
         let example2_days_within = 115;
         let example2_result = check_pubdate_within_days(example2_pubdate_ms, example2_days_within);
         // println!("check: {} - {} > {:?}  ? = {}", timenow.format("%Y-%m-%d"), example2_days_within, chrono::DateTime::from_timestamp(example2_pubdate_ms,0).expect("need timestamp").format("%Y-%m-%d"), example2_result);
-        assert_eq!(example2_result, true);
+        assert_eq!(example2_result, false);
     }
 }

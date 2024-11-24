@@ -53,10 +53,47 @@ fn main() {
 
 ```
 
-## Configuration
+## Create your own custom plugins and run these in the Pipeline
 
-The entire application is driven by its config file.
+Declare custom retriever plugin and add these to the pipeline to fetch data using your customised logic.
+
+```
+fn run_pipeline(config: &config::Config) -> Vec<Document> {
+
+    newslookout::init_logging(config);
+    newslookout::init_pid_file(config);
+    log::info!("Starting the custom pipeline");
+
+    let mut retriever_plugins = newslookout::pipeline::load_retriever_plugins(config);
+    let mut data_proc_plugins = newslookout::pipeline::load_dataproc_plugins(config);
+
+    // add custom data retriever:
+    retriever_plugins.push(my_plugin);
+    let docs_retrieved = newslookout::pipeline::start_data_pipeline(
+        retriever_plugins,
+        data_proc_plugins,
+        config
+    );
+    log::info!("Data pipeline completed processing {} documents.", docs_retrieved.len());
+    // use docs_retrieved for any further custom processing.
+
+    newslookout::cleanup_pid_file(&config);
+}
+```
+
+Similarly, you can also declare and use custom data processing plugins, e.g.:
+```
+data_proc_plugins.push(my_own_data_processing);
+```
+Note that for data processing, these type of plugins are run in serial order of priority defined in the config file.
 
 There are a few pre-built modules provided for a few websites.
 These can be readily extended for other websites as required.
+
 Refer to the source code of these in the plugins folder and roll out your own plugins.
+
+
+## Configuration
+
+The entire application is driven by its config file.
+Refer to the example config file in the repository.

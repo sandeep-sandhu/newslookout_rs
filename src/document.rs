@@ -5,12 +5,6 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, Map, Number};
 
-// #[derive(Debug, Serialize, Deserialize, PartialEq)]
-// pub(crate) struct TextPart {
-//     pub(crate) id: u32,
-//     pub(crate) text: String,
-// }
-
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Document {
     pub module: String,

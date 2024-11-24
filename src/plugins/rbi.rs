@@ -1,4 +1,4 @@
-// file: mod_en_in_rbi
+// file: rbi
 // Purpose: Retrieve data published by RBI
 
 
@@ -16,6 +16,7 @@ use log::{debug, error, info};
 use nom::AsBytes;
 use pdf_extract::extract_text_from_mem;
 use rand::Rng;
+use reqwest;
 use scraper::ElementRef;
 use serde_json::{json, Value};
 use {
@@ -25,11 +26,10 @@ use {
 use crate::{document, network, utils};
 use crate::document::{Document, new_document};
 use crate::html_extract::{extract_text_from_html, extract_doc_from_row};
-use crate::llm::check_and_split_text;
 use crate::network::{read_network_parameters, make_http_client, NetworkParameters};
-use crate::utils::{split_by_word_count, clean_text, get_data_folder, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename, retrieve_pdf_content, extract_text_from_pdf};
+use crate::utils::{clean_text, get_data_folder, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename, retrieve_pdf_content, extract_text_from_pdf, load_pdf_content, check_and_fix_url};
 
-pub(crate) const PLUGIN_NAME: &str = "mod_en_in_rbi";
+pub(crate) const PLUGIN_NAME: &str = "rbi";
 const PUBLISHER_NAME: &str = "Reserve Bank of India";
 const BASE_URL: &str = "https://website.rbi.org.in/";
 const STARTER_URLS: [(&str,&str); 15] = [
@@ -94,8 +94,7 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
                 &client,
                 tx,
                 data_folder_name,
-                netw_params.retry_times,
-                netw_params.wait_time_min,
+                netw_params,
                 maxitemsinpage,
                 maxpages
             );
@@ -103,7 +102,6 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
         },
         None => {
             error!("Unable to determine path to store data files.");
-            panic!("Unable to determine path to store data files.");
         }
     };
 }
@@ -129,8 +127,7 @@ fn retrieve_data(
     client: &reqwest::blocking::Client,
     tx: Sender<document::Document>,
     data_folder: &str,
-    retry_times: usize,
-    wait_time:usize,
+    netw_params: NetworkParameters,
     maxitemsinpage: u64,
     max_pages: u64
 ) -> usize {
@@ -151,7 +148,7 @@ fn retrieve_data(
             listing_url_with_args.push_str(&urlargs);
 
             // retrieve content from this url and extract vector of documents, mainly individual urls to retrieve.
-            let content = network::http_get(&listing_url_with_args, &client, retry_times, rng.gen_range(wait_time..=(wait_time*3)));
+            let content = network::http_get(&listing_url_with_args, &client, (&netw_params).retry_times, rng.gen_range((&netw_params).wait_time_min..=((&netw_params).wait_time_min*3)));
             let count_of_docs = get_docs_from_listing_page(
                 content,
                 &tx,
@@ -159,8 +156,7 @@ fn retrieve_data(
                 section_name,
                 &mut already_retrieved_urls,
                 client,
-                retry_times,
-                wait_time,
+                &netw_params,
                 data_folder
             );
             counter += count_of_docs;
@@ -171,64 +167,6 @@ fn retrieve_data(
 }
 
 
-/// Extract content of the associated PDF file mentioned in the document's pdf_url attribute
-/// Converts to text and saves it to the document 'text' attribute.
-/// The PDF content is saved as a file in the data_folder.
-///
-/// # Arguments
-///
-/// * `input_doc`: The document to read
-/// * `client`: The HTTP(S) client for fectching the web content via GET requests
-/// * `data_folder`: The data folder where the PDF files are to be saved.
-///
-/// returns: ()
-pub fn load_pdf_content(
-    mut input_doc: &mut Document,
-    client: &reqwest::blocking::Client,
-    data_folder: &str)
-{
-    if input_doc.pdf_url.len() > 4 {
-        let pdf_filename = make_unique_filename(&input_doc, "pdf");
-        // save to file in data_folder, make full path by joining folder to unique filename
-        let pdf_file_path = Path::new(data_folder).join(&pdf_filename);
-        // check if pdf already exists, if so, do not retrieve again:
-        if Path::exists(pdf_file_path.as_path()){
-            info!("Not retrieving PDF since it already exists: {:?}", pdf_file_path);
-            if input_doc.text.len() > 1 {
-                let txt_filename = make_unique_filename(&input_doc, "txt");
-                let txt_file_path = Path::new(data_folder).join(&txt_filename);
-                input_doc.text = extract_text_from_pdf(pdf_file_path, txt_file_path);
-            }
-        }else {
-            // get pdf content, and its plaintext output
-            let (pdf_data, plaintext) = retrieve_pdf_content(&input_doc.pdf_url, client);
-            input_doc.text = plaintext;
-            debug!("From url {}: retrieved pdf file from link: {} of length {} bytes",
-                input_doc.url, input_doc.pdf_url, pdf_data.len()
-            );
-            if pdf_data.len() > 1 {
-                // persist to disk
-                match File::create(&pdf_file_path) {
-                    Ok(mut pdf_file) => {
-                        debug!("Created pdf file: {:?}, now starting to write data for: '{}' ",
-                            pdf_file_path, input_doc.title
-                        );
-                        match pdf_file.write_all(pdf_data.as_bytes()) {
-                            Ok(_write_res) => info!("From url {} wrote {} bytes to file: {}",
-                                input_doc.pdf_url, pdf_data.len(),
-                                pdf_file_path.as_os_str().to_str().unwrap()),
-                            Err(write_err) => error!("When writing PDF file to disk: {}",
-                                write_err)
-                        }
-                    },
-                    Err(file_err) => {
-                        error!("When creating pdf file: {}", file_err);
-                    }
-                }
-            }
-        }
-    }
-}
 /// Retrieve documents from the page that lists multiple documents, extract relevant content and
 /// return back vector of documents.
 ///
@@ -264,19 +202,16 @@ pub fn get_docs_from_listing_page(
     section_name: &str,
     already_retrieved_urls: &mut HashSet<String>,
     client: &reqwest::blocking::Client,
-    retry_times:usize,
-    wait_time:usize,
+    netw_params: &NetworkParameters,
     data_folder: &str) -> usize
 {
     let mut counter: usize=0;
-    let mut rng = rand::thread_rng();
 
     let rows_selector = scraper::Selector::parse("div.notifications-row-wrapper>div>div").unwrap();
-    // to select div with class = "Notification-content-wrap"
-    let whole_page_content_selector = scraper::Selector::parse("div.Notification-content-wrap").unwrap();
 
     // get url list:
     info!("{}: Retrieving url listing from: {}", PLUGIN_NAME, url_listing_page);
+
     // parse content using scraper
     let html_document = scraper::Html::parse_document(&content.as_str());
 
@@ -293,32 +228,26 @@ pub fn get_docs_from_listing_page(
             document::DATA_PROC_EXTRACT_NAME_ENTITY | document::DATA_PROC_SUMMARIZE |
             document::DATA_PROC_EXTRACT_ACTIONS;
 
-        debug!("{}: checking url: {} if already retrieved? {}",
-            PLUGIN_NAME,
-            this_new_doc.url,
-            already_retrieved_urls.contains(this_new_doc.url.as_str())
-        );
+        // check if url was already retrieved?
         if already_retrieved_urls.contains(&this_new_doc.url){
             info!("{}: Ignoring already retrieved url: {}", PLUGIN_NAME, this_new_doc.url);
             continue 'rows_loop;
         }
 
-        // get content of web page:
-        let html_content = network::http_get(
-            &this_new_doc.url,
-            &client,
-            retry_times,
-            rng.gen_range(wait_time..=(wait_time*3))
-        );
-        // from the entire page's html content, save only the specified div element
-        let page_content = scraper::Html::parse_document(html_content.as_str());
-        for page_div in page_content.select(&whole_page_content_selector){
-            this_new_doc.html_content = page_div.html();
+        // check url is valid before retrieving it:
+        if let Some(proper_url) = check_and_fix_url(this_new_doc.url.as_str(), BASE_URL){
+            this_new_doc.url = proper_url;
+        }else{
+            // ignore this url:
+            info!("{}: Ignoring invalid url: {}", PLUGIN_NAME, this_new_doc.url);
+            continue 'rows_loop;
         }
-        debug!("From listing page {}: got the document url {}, and its content of size: {}",
-                    url_listing_page, this_new_doc.url, this_new_doc.html_content.len());
+
+        populate_content_in_doc(&mut this_new_doc, client, netw_params);
 
         _ = already_retrieved_urls.insert(this_new_doc.url.clone());
+        debug!("From listing page {}: got the document url {}, and its content of size: {}",
+                    url_listing_page, this_new_doc.url, this_new_doc.html_content.len());
 
         // make full path by joining folder to unique filename
         let filename = make_unique_filename(&this_new_doc, "json");
@@ -326,6 +255,7 @@ pub fn get_docs_from_listing_page(
         this_new_doc.filename = String::from(
             json_file_path.as_path().to_str().expect("Not able to convert path to string")
         );
+
         load_pdf_content(&mut this_new_doc, &client, data_folder);
 
         // perform any custom processing of the data in the document:
@@ -343,6 +273,42 @@ pub fn get_docs_from_listing_page(
     return counter;
 }
 
+/// Retrieves via HTTP GET the contents of this document from the url field of the document struct
+/// Populates the content and other attributes specific to this page
+///
+/// # Arguments
+///
+/// * `this_new_doc`: The document to retrieve content for, updates this document
+/// * `client`: The HTTP client to use for network retrieval via HTTP(S) GET protocol
+/// * `netw_params`: The network parameters structure to be used for network fetch
+///
+/// returns: ()
+fn populate_content_in_doc(this_new_doc: &mut Document, client: &reqwest::blocking::Client, netw_params: &NetworkParameters) {
+
+    let mut rng = rand::thread_rng();
+
+    // to select div with class = "Notification-content-wrap"
+    let whole_page_content_selector = scraper::Selector::parse("div.Notification-content-wrap").unwrap();
+
+    // get content of web page:
+    let html_content = network::http_get(
+        &this_new_doc.url,
+        &client,
+        netw_params.retry_times,
+        rng.gen_range(netw_params.wait_time_min..=(netw_params.wait_time_max*3))
+    );
+
+    // TODO: apply logic for press release introducing new notification
+    // in that case, move html_content into referrer_text, and download the new url identified
+    // from the referrer text, replace url attribute with new url
+
+    // from the entire page's html content, save only the specified div element:
+    let page_content = scraper::Html::parse_document(html_content.as_str());
+    for page_div in page_content.select(&whole_page_content_selector){
+        this_new_doc.html_content = page_div.html();
+    }
+
+}
 
 fn custom_data_processing(doc_to_process: &mut document::Document){
 
@@ -358,20 +324,9 @@ fn custom_data_processing(doc_to_process: &mut document::Document){
         doc_to_process.recipients = clean_recepients(doc_to_process.recipients.as_str());
     }
 
-    doc_to_process.classification.insert("doc_type".to_string(), get_doc_type(doc_to_process.title.as_str()));
-
-    check_and_split_text(doc_to_process);
 
 }
 
-
-
-fn get_doc_type(title: &str) -> String {
-    let mut doctype: String = String::from("regulatory-notification");
-    // TODO: mark doctype based on patterns:
-
-    return doctype;
-}
 
 fn clean_recepients(recepients: &str) -> String{
     let letter_greeting_regex: Regex = Regex::new(
@@ -387,8 +342,8 @@ fn clean_recepients(recepients: &str) -> String{
 
 #[cfg(test)]
 mod tests {
-    use crate::plugins::mod_en_in_rbi;
-    use crate::plugins::mod_en_in_rbi::clean_recepients;
+    use crate::plugins::rbi;
+    use crate::plugins::rbi::clean_recepients;
 
     #[test]
     fn test_clean_recepients() {

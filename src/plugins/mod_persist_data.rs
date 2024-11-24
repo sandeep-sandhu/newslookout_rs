@@ -21,12 +21,14 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
         Ok(dirname) => data_folder_name = dirname,
         Err(e) => error!("When getting name of data folder to save, error: {}, using default value.", e)
     }
+
     // read parameter: "file_format"
     let mut file_format: String = String::from("json");
     match get_plugin_config(&app_config, PLUGIN_NAME, "file_format"){
         Some(param_val_str) => file_format = param_val_str,
         None => error!("Could not get parameter 'file_format', using default value of: {}", file_format)
     };
+
     // read parameter: "destination"="file"/ "database"
     let mut destination: String = String::from("file");
     match get_plugin_config(&app_config, PLUGIN_NAME, "destination"){

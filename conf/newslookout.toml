@@ -31,7 +31,7 @@ conf_dir ="conf"
 
 # The data_dir specifies the name of the directory where the data files will be saved:
 #data_dir =  "/media/shared/datasets/newslookout_rs_data"
-data_dir =  "C:/shared/datasets/newslookout_rs_data/files"
+data_dir =  "data/files"
 
 # the master data files will be stored in this folder (e.g. those datasets that are appended daily)
 master_data_dir = "data/master_data"
@@ -39,7 +39,7 @@ master_data_dir = "data/master_data"
 models_dir =  "models"
 
 # location of the log file, here it is specified relative to the data directory:
-log_file = "C:/shared/datasets/newslookout_rs_data/newslookout.log"
+log_file = "logs/newslookout.log"
 
 # If a PID (process identifier) file exists, the application will not launch.
 # This is to prevent multiple instances being launched on the same machine.
@@ -48,7 +48,7 @@ pid_file = "logs/newslookout.pid"
 
 # the sqlite data file that stores the history of previously retrieved URLs
 #completed_urls_datafile = "/media/shared/newslookout_urls.db"
-completed_urls_datafile = "C:/shared/datasets/newslookout_rs_data/newslookout_urls.db"
+completed_urls_datafile = "data/newslookout_urls.db"
 
 cookie_file="data/cookies.txt"
 
@@ -99,25 +99,25 @@ logfile_backup_count=30
 # the number assigned to the priority attribute indicates execution priority,
 # A lower number indicates higher priority, so it will be run before others are run
 plugins = [
-   {"enabled"=false, "name"="mod_in_gdelt", "type"="retriever", "priority"=1}
- , {"enabled"=false, "name"="mod_in_nse", "type"="retriever", "priority"=2}
- , {"enabled"=false, "name"="mod_in_bse", "type"="retriever", "priority"=2}
- , {"enabled"=false, "name"="mod_en_in_inexp_business", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
+   {"enabled"=true, "name"="mod_in_gdelt", "type"="retriever", "priority"=1}
+ , {"enabled"=true, "name"="mod_in_nse", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_in_bse", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_in_inexp_business", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_business_std", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_hindu", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_indiankanoon", "type"="retriever", "priority"=5}
- , {"enabled"=false, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
- , {"enabled"=false, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
- , {"enabled"=false, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "maxpages"=5, "items_per_page"=5}
- , {"enabled"=false, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "published_in_past_days"=2}
+ , {"enabled"=true, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_hindu", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_indiankanoon", "type"="retriever", "priority"=5}
+ , {"enabled"=true, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
+ , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
+ , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
+, {"enabled"=true, "name"="rbi", "type"="retriever", "priority"=1, "maxpages"=5, "items_per_page"=5}
+ , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "published_in_past_days"=3000}
  # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
- , {"enabled"=true, "name"="mod_dataprep", "type"="data_processor", "priority"=1}
+ , {"enabled"=true, "name"="split_text", "type"="data_processor", "priority"=1, "min_word_limit_to_split"=600}
  # it is recommended to keep these plugins disabled, they will slow down the entire application
  # since the models are very large and computationally intensive
  # enable them if you are running the application on very capable hardware > 16GB RAM and 8 CPU:
@@ -129,18 +129,20 @@ plugins = [
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
  , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=3, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=false, "name"="mod_summarize", "type"="data_processor", "priority"=5, "service"="ollama"}
- , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=5, "llm_service"="ollama", "overwrite"=false, "max_word_count"=850}
+ , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}
  , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=8, "destination"="vectorindex", "file_format"="json"}
  , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=9, "destination"="file", "file_format"="json"}
 ]
 
-model_fetch_timeout=1500
+model_api_timeout=200
 save_intermediate=true
 model_temperature=0
+max_llm_context_tokens=8192
+max_gen_tokens=8192
 
 ollama_svc_url="http://127.0.0.1:11434/api/generate"
-ollama_model_name="gemma2_27b"
+ollama_model_name="gemma2"
 
 chatgpt_svc_url="https://api.openai.com/v1/chat/completions"
 chatgpt_model_name="gpt-4o-mini"
@@ -148,12 +150,10 @@ chatgpt_model_name="gpt-4o-mini"
 gemini_svc_url="https://generativelanguage.googleapis.com/v1beta/models/"
 gemini_model_name="gemini-1.0-pro"
 
-summary_part_context="Summarize the following text in less than 200 words. Return summary in bullet points grouped under similar topics. Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go. You MUST use the same terms and abbreviations from the text while preparing the summary. NO other text MUST be included. Keep the tone professional + straightforward.\n\nTEXT:"
+prompt_summary_part="Summarize the following text in less than 200 words. Return summary in bullet points grouped under similar topics. Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go. Use a professional and straightforward tone.\n\nTEXT:"
 
-insights_part_context="Based on the following text from a document, extract each action that an organisation should take. Walk me through this text in manageable parts step by step, analyzing and extracting aactions as we go. Answer back in full and complete sentences extracted from this text. Merge similar actions into one. NO other text MUST be included. Trace back all actions with the original text and remove any actions that are not mentioned in the original text. Return all actions extracted as a JSON object in this format: ```[{{\"extracted_insight\": \"REs shall retrieve the updated KYC records from CKYCR\"}}, {{\"extracted_insight\": \"REs shall maintain capital buffers.\"}}, ]```\nReturn a blank JSON object if no actions can be identified.\n\nTEXT:\n"
+prompt_summary_exec="Create a summary of this text in less than 800 words.  Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go.\n\nTEXT:"
 
-summary_exec_context="Summarize the following text in less than 700 words. Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go. Return in bullet format with one sentence heading giving an overview of each group of bullet points. You MUST use the original terms and abbreviations from the text while preparing the summary. NO other text MUST be included. Keep the tone professional + straightforward.\n\nTEXT:"
-
-system_context = "Act as an expert in financial news."
+system_context = "Act as an expert in analysing news."
 
 ## end of file ##

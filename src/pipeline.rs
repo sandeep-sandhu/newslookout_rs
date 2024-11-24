@@ -21,7 +21,7 @@ use rusqlite;
 use crate::document;
 use crate::network;
 use crate::utils;
-use crate::plugins::{mod_en_in_business_standard, mod_en_in_rbi, mod_offline_docs, mod_classify, mod_dataprep, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore};
+use crate::plugins::{mod_en_in_business_standard, rbi, mod_offline_docs, mod_classify, split_text, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore};
 use crate::document::{Document};
 use crate::utils::{make_unique_filename, save_to_disk_as_json};
 
@@ -150,13 +150,13 @@ pub fn load_retriever_plugins(app_config: &Config) -> Vec<RetrieverPlugin> {
 
                 // check value of plugin to invoke the relevant module:
                 match plugin_name.as_str() {
-                    mod_en_in_rbi::PLUGIN_NAME => {
+                    rbi::PLUGIN_NAME => {
                         retriever_plugins.push(
                             RetrieverPlugin {
                                 name: plugin_name,
                                 priority: priority,
                                 enabled: plugin_enabled,
-                                method: mod_en_in_rbi::run_worker_thread,
+                                method: rbi::run_worker_thread,
                             }
                         );
                         continue;
@@ -185,7 +185,7 @@ pub fn load_retriever_plugins(app_config: &Config) -> Vec<RetrieverPlugin> {
                     },
                     // add additional retrievers here:
                     _ => {
-                        info!("Unknown plugin specified in config file: {}", plugin_name.as_str())
+                        debug!("Unknown plugin specified in config file: {}", plugin_name.as_str())
                     }
                 }
             }
@@ -206,7 +206,7 @@ pub fn load_dataproc_plugins(app_config: &Config) -> BinaryHeap<DataProcPlugin> 
 
     let mut plugin_heap: BinaryHeap<DataProcPlugin> = BinaryHeap::new();
     // default value:
-    let mut matched_data_proc_fn: fn(Sender<Document>, Receiver<Document>, &Config) = mod_dataprep::process_data;
+    let mut matched_data_proc_fn: fn(Sender<Document>, Receiver<Document>, &Config) = split_text::process_data;
 
     info!("Data processing pipeline: Reading the configuration and starting the plugins.");
     let mut plugins_configured = Vec::new();
@@ -223,13 +223,13 @@ pub fn load_dataproc_plugins(app_config: &Config) -> BinaryHeap<DataProcPlugin> 
                 let (plugin_name, plugin_type, plugin_enabled, priority) = extract_plugin_params(plugin_map);
                 if plugin_enabled && plugin_type == PluginType::DataProcessor {
                     match plugin_name.as_str() {
-                        "mod_dataprep" => {
+                        "split_text" => {
                             debug!("Loading the data processing plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
                                     priority: priority,
                                     enabled: plugin_enabled,
-                                    method: mod_dataprep::process_data,
+                                    method: split_text::process_data,
                                 }
                             );
                         },
@@ -471,7 +471,7 @@ fn start_retrieval_pipeline(plugins: Vec<RetrieverPlugin>, tx: Sender<document::
 #[cfg(test)]
 mod tests {
     use std::collections::BinaryHeap;
-    use crate::plugins::mod_dataprep;
+    use crate::plugins::split_text;
     use crate::pipeline;
     use crate::pipeline::{DataProcPlugin};
 
@@ -484,9 +484,9 @@ mod tests {
     #[test]
     fn test_priority_queue(){
         let mut plugin_heap: BinaryHeap<DataProcPlugin> = BinaryHeap::new();
-        let plugin1 = DataProcPlugin{priority: 10, enabled: true, method: mod_dataprep::process_data};
-        let plugin2 = DataProcPlugin{priority: -20, enabled: true, method: mod_dataprep::process_data};
-        let plugin3 = DataProcPlugin{priority: 2, enabled: true, method: mod_dataprep::process_data};
+        let plugin1 = DataProcPlugin{priority: 10, enabled: true, method: split_text::process_data};
+        let plugin2 = DataProcPlugin{priority: -20, enabled: true, method: split_text::process_data};
+        let plugin3 = DataProcPlugin{priority: 2, enabled: true, method: split_text::process_data};
         plugin_heap.push(plugin1);
         plugin_heap.push(plugin2);
         plugin_heap.push(plugin3);

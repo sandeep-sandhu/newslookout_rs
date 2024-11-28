@@ -40,23 +40,6 @@ use crate::{document, network, utils};
 use crate::document::{Document};
 
 
-pub fn read_config(cfg_file: String) -> Config{
-    let mut cfg_builder = Config:: builder();
-    // cfg_builder = cfg_builder.set_default("default", "1");
-    cfg_builder = cfg_builder.add_source(Environment::default().prefix("NEWSLOOKOUT_"));
-    cfg_builder = cfg_builder.add_source(config::File::new(&cfg_file, FileFormat::Toml));
-    // Add a default configuration file
-    match cfg_builder.build() {
-        Ok(config) => {
-            // use your config
-            return config;
-        },
-        Err(e) => {
-            // something went wrong, return error to the calling function
-            panic!("Error reading configuration - {}", e)
-        }
-    }
-}
 
 pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) {
 
@@ -213,30 +196,6 @@ pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) 
         }
     }
     return all_file_paths;
-}
-
-
-pub fn get_data_folder(config: &Config) -> std::path::PathBuf {
-    match config.get_string("data_dir") {
-        Ok(dirname) => {
-            let dirpath = std::path::Path::new(dirname.as_str());
-            if std::path::Path::is_dir(dirpath){
-                return dirpath.to_path_buf()
-            }
-        },
-        Err(e) => error!("When getting data folder name: {}", e)
-    }
-    // return present working directory
-    let path_currdir = env::current_dir().expect("give proper argument");
-    return path_currdir;
-}
-
-pub fn get_database_filename(config: &Config) -> String {
-    match config.get_string("completed_urls_datafile") {
-        Ok(dirname) => return dirname,
-        Err(e) => error!("When getting database filename: {}", e)
-    }
-    return "newslookout_urls.db".to_string();
 }
 
 /// Get already retrieved URLs from the database for the given plugin/module
@@ -604,92 +563,6 @@ fn append_with_last_element(stringvec: &mut Vec<String>, text_to_append: String)
         stringvec.push(text_to_append);
     }
     //return stringvec;
-}
-
-/// Retrieve the queried parameter from this plugin's configuration
-///
-/// # Arguments
-///
-/// * `app_config`: The config loaded from the application's config file.
-/// * `plugin_name`: The name of this plugin
-/// * `param_key`: The parameter to be queried
-///
-/// returns: Option<String>
-pub fn get_plugin_config(app_config: &Config, plugin_name: &str, param_key: &str) -> Option<String> {
-    match app_config.get_array("plugins"){
-        Result::Ok(plugins) =>{
-            for plugin in plugins {
-                match plugin.into_table(){
-                    Ok(plugin_map ) => {
-                        match plugin_map.get("name") {
-                            Some(name_val) =>{
-                                if name_val.to_string().eq(plugin_name) {
-                                    // get the param for given key from this plugin_map:
-                                    match plugin_map.get(param_key) {
-                                        Some(param_val) => {
-                                            return Some(param_val.to_string());
-                                        },
-                                        None =>{
-                                            error!("When retrieving value for key {}", param_key);
-                                            return None;
-                                        }
-                                    }
-                                }
-                            },
-                            None => {
-                                error!("When extracting name parameter of plugin.");
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        error!("When getting individual plugin config: {}", e);
-                        return None;
-                    }
-                }
-            }
-        },
-        Err(e)=> {
-            error!("When retrieving plugins config for all plugins: {}", e);
-            return None;
-        }
-    }
-    return None;
-}
-
-/// Get user context (prompts) from application configuration.
-///
-/// # Arguments
-///
-/// * `app_config`:
-///
-/// returns: (String, String, String, String)
-pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String, String){
-
-    let mut summary_part_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
-    match app_config.get_string("summary_part_context") {
-        Ok(param_val_str) => summary_part_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'summary_part_context' from config file, using default, error: {}", e)
-    }
-
-    let mut insights_part_context: String = String::from("Read the following text and extract actions from it.\n\nTEXT:\n");
-    match app_config.get_string("insights_part_context") {
-        Ok(param_val_str) => insights_part_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'insights_part_context' from config file, using default, error: {}", e)
-    }
-
-    let mut summary_exec_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
-    match app_config.get_string("summary_exec_context") {
-        Ok(param_val_str) => summary_exec_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'summary_exec_context' from config file, using default, error: {}", e)
-    }
-
-    let mut system_context: String = String::from("You are an expert in analysing news and documents.");
-    match app_config.get_string("system_context") {
-        Ok(param_val_str) => system_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'system_context' from config file, using default, error: {}", e)
-    }
-
-    return (summary_part_context, insights_part_context, summary_exec_context, system_context);
 }
 
 pub fn get_text_using_ocr(){

@@ -5,7 +5,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use config::Config;
 use log::{debug, error, info};
 use crate::document;
-use crate::utils::{get_plugin_config, make_unique_filename};
+use crate::utils::{make_unique_filename};
+use crate::cfg::{get_plugin_config, };
 
 pub const PLUGIN_NAME: &str = "mod_persist_data";
 

@@ -33,7 +33,7 @@
 
 use std::env;
 use std::io::Write;
-use config::Config;
+use ::config::Config;
 use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Root};
@@ -59,7 +59,7 @@ pub mod llm;
 pub mod document;
 pub mod html_extract;
 pub mod pipeline;
-
+pub mod cfg;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -82,7 +82,7 @@ const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 /// let config = utils::read_config(configfile);<br/>
 /// newslookout::run_app(config);</tt>
 ///
-pub fn load_and_run_pipeline(config: config::Config) -> Vec<document::Document> {
+pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
 
     init_logging(&config);
     init_pid_file(&config);

@@ -295,7 +295,7 @@ pub fn load_dataproc_plugins(app_config: &Config) -> BinaryHeap<DataProcPlugin> 
                         },
                         // add any new plugins here:
                         _ => {
-                            error!("Cannot start unknown plugin: {}", plugin_name);
+                            info!("Unable to load unknown data processing plugin: {}", plugin_name);
                         }
                     }
                 }
@@ -345,15 +345,19 @@ pub fn data_processing_pipeline(
     let mut previous_rx = dataproc_docs_input_rx;
 
     while let Some( DataProcPlugin{ priority, enabled, method }) = plugin_heap.pop() {
-        // for each item i in plugin_heap:
-        info!("Starting data processing thread with priority #{}", priority);
-        // create a channel with txi, rxi
-        let (txi, rxi) = mpsc::channel();
-        // start a new thread with tx= txi and rx=previous_rx, and clone of config:
-        let config_clone= config.clone();
-        let handle = thread::spawn(move || method(txi, previous_rx, &config_clone));
-        dataproc_thread_run_handles.push(handle);
-        previous_rx = rxi;
+        if enabled == true {
+            // for each item i in plugin_heap:
+            info!("Starting data processing thread with priority #{}", priority);
+            // create a channel with txi, rxi
+            let (txi, rxi) = mpsc::channel();
+            // start a new thread with tx= txi and rx=previous_rx, and clone of config:
+            let config_clone = config.clone();
+            let handle = thread::spawn(move || method(txi, previous_rx, &config_clone));
+            dataproc_thread_run_handles.push(handle);
+            previous_rx = rxi;
+        } else{
+            info!("Ignoring disabled data processing thread with priority #{}", priority);
+        }
     }
 
     // Wait for documents on channel previous_rx and,
@@ -450,17 +454,19 @@ fn start_retrieval_pipeline(plugins: Vec<RetrieverPlugin>, tx: Sender<document::
         let msg_tx = tx.clone();
         let config_clone= config.clone();
 
-        let thread_builder = thread::Builder::new()
-            .name(plugin.name.as_str().into());
-        let plugin_retrieve_function = plugin.method;
-        match thread_builder.spawn(
-            move ||  plugin_retrieve_function(msg_tx, config_clone)
-        ) {
-            Result::Ok(handle) => {
-                task_run_handles.push(handle);
-                info!("Started thread for plugin: {}", plugin.name);
-            },
-            Err(e) => error!("Could not spawn thread for plugin {}, error: {}", plugin.name, e)
+        if plugin.enabled == true {
+            let thread_builder = thread::Builder::new()
+                .name(plugin.name.as_str().into());
+            let plugin_retrieve_function = plugin.method;
+            match thread_builder.spawn(
+                move ||  plugin_retrieve_function(msg_tx, config_clone)
+            ) {
+                Result::Ok(handle) => {
+                    task_run_handles.push(handle);
+                    info!("Started thread for plugin: {}", plugin.name);
+                },
+                Err(e) => error!("Could not spawn thread for plugin {}, error: {}", plugin.name, e)
+            }
         }
     }
 

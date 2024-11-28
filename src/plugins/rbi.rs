@@ -25,30 +25,15 @@ use {
 
 use crate::{document, network, utils};
 use crate::document::{Document, new_document};
+use crate::cfg::{get_plugin_config, get_data_folder, get_database_filename};
 use crate::html_extract::{extract_text_from_html, extract_doc_from_row};
 use crate::network::{read_network_parameters, make_http_client, NetworkParameters};
-use crate::utils::{clean_text, get_data_folder, get_plugin_config, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, get_database_filename, retrieve_pdf_content, extract_text_from_pdf, load_pdf_content, check_and_fix_url};
+use crate::utils::{clean_text, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, retrieve_pdf_content, extract_text_from_pdf, load_pdf_content, check_and_fix_url};
 
 pub(crate) const PLUGIN_NAME: &str = "rbi";
 const PUBLISHER_NAME: &str = "Reserve Bank of India";
 const BASE_URL: &str = "https://website.rbi.org.in/";
-const STARTER_URLS: [(&str,&str); 15] = [
-    ("https://website.rbi.org.in/web/rbi/notifications/rbi-circulars", "Circular"),
-    ("https://website.rbi.org.in/web/rbi/press-releases", "Press Release"),
-    ("https://website.rbi.org.in/web/rbi/notifications/draft-notifications", "Draft Notifications"),
-    ("https://website.rbi.org.in/web/rbi/notifications/master-directions", "Master Directions"),
-    ("https://website.rbi.org.in/en/web/rbi/notifications/master-circulars", "Master Circulars"),
-    ("https://website.rbi.org.in/web/rbi/notifications", "Notifications"),
-    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/act", "Acts"),
-    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/rules", "Rules"),
-    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/regulations", "Regulations"),
-    ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/schemes", "Schemes"),
-    ("https://website.rbi.org.in/web/rbi/speeches", "Speeches"),
-    ("https://website.rbi.org.in/web/rbi/interviews", "Interviews and Media Interactions"),
-    ("https://website.rbi.org.in/web/rbi/publications/publications-by-frequency", "Reports"),
-    ("https://website.rbi.org.in/web/rbi/publications/reports/financial_stability_reports", "Reports"),
-    ("https://website.rbi.org.in/web/rbi/publications/articles", "Articles"),
-];
+
 
 
 /// Executes this function of the module in the separate thread launched by the pipeline/queue module
@@ -85,11 +70,30 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
     };
     info!("{} using parameters: maxitemsinpage={}, maxpages={}", PLUGIN_NAME, maxitemsinpage, maxpages);
 
+    let starter_urls: Vec<(&str, &str)> = vec![
+        ("https://website.rbi.org.in/web/rbi/notifications/rbi-circulars", "Circular"),
+        ("https://website.rbi.org.in/web/rbi/press-releases", "Press Release"),
+        ("https://website.rbi.org.in/web/rbi/notifications/draft-notifications", "Draft Notifications"),
+        ("https://website.rbi.org.in/web/rbi/notifications/master-directions", "Master Directions"),
+        ("https://website.rbi.org.in/en/web/rbi/notifications/master-circulars", "Master Circulars"),
+        ("https://website.rbi.org.in/web/rbi/notifications", "Notifications"),
+        ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/act", "Acts"),
+        ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/rules", "Rules"),
+        ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/regulations", "Regulations"),
+        ("https://website.rbi.org.in/web/rbi/about-us/legal-framework/schemes", "Schemes"),
+        ("https://website.rbi.org.in/web/rbi/speeches", "Speeches"),
+        ("https://website.rbi.org.in/web/rbi/interviews", "Interviews and Media Interactions"),
+        ("https://website.rbi.org.in/web/rbi/publications/reports/reports_list", "Reports"),
+        ("https://website.rbi.org.in/web/rbi/publications/rbi-bulletin", "Bulletin"),
+        ("https://website.rbi.org.in/web/rbi/publications/reports/financial_stability_reports", "Reports"),
+        ("https://website.rbi.org.in/web/rbi/publications/chapters?category=24927745", "Report on Currency and Finance"),
+        ("https://website.rbi.org.in/web/rbi/publications/articles?category=24927873", "Monetary Policy Report"),
+    ];
+
     match get_data_folder(&app_config).to_str(){
         Some(data_folder_name) => {
-
             let _count_docs = retrieve_data(
-                STARTER_URLS,
+                starter_urls,
                 database_filename.as_str(),
                 &client,
                 tx,
@@ -98,7 +102,6 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
                 maxitemsinpage,
                 maxpages
             );
-
         },
         None => {
             error!("Unable to determine path to store data files.");
@@ -122,7 +125,7 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 ///
 /// returns: u32
 fn retrieve_data(
-    starter_urls: [(&str, &str); 15],
+    starter_urls: Vec<(&str, &str)>,
     database_filename: &str,
     client: &reqwest::blocking::Client,
     tx: Sender<document::Document>,

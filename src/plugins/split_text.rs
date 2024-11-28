@@ -8,7 +8,8 @@ use log::{debug, error, info};
 use regex::Regex;
 use serde_json::{json, Value};
 use crate::document::Document;
-use crate::utils::{clean_text, get_plugin_config, get_text_from_element, split_by_word_count, to_local_datetime};
+use crate::utils::{clean_text, get_text_from_element, split_by_word_count, to_local_datetime};
+use crate::cfg::{get_plugin_config, };
 
 pub const PLUGIN_NAME: &str = "split_text";
 const PUBLISHER_NAME: &str = "Split document text";

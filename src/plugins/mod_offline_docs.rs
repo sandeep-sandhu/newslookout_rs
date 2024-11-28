@@ -19,7 +19,8 @@ use reqwest::blocking::Client;
 use crate::{document, network};
 use crate::document::Document;
 use crate::network::make_http_client;
-use crate::utils::{get_data_folder, get_files_listing_from_dir, get_plugin_config, get_urls_from_database};
+use crate::utils::{get_files_listing_from_dir, get_urls_from_database};
+use crate::cfg::{get_data_folder, get_plugin_config};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_offline_docs";
 const PUBLISHER_NAME: &str = "Read documents from disk";
@@ -45,20 +46,22 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
         }, None => {}
     };
 
-    match get_data_folder(&app_config).to_str(){
-        Some(data_folder_name) => {
+    // get parameter folder_name
+    let mut data_folder_name = String::from("data");
+    match get_plugin_config(&app_config, PLUGIN_NAME, "folder_name"){
+        Some(param_str) => {
+            data_folder_name =param_str;
             // read all docs from data_folder_name and prepare vector of Documents
-            let all_files_in_dir: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name, file_extension.as_str());
+            let all_files_in_dir: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name.as_str(), file_extension.as_str());
 
             let doc_count = get_and_send_docs_from_data_folder(all_files_in_dir, tx, file_extension.as_str(), published_in_past_days);
 
             info!("{}: processed {} documents.", PLUGIN_NAME, doc_count);
-        },
-        None => {
-            error!("Got nothing when getting path to store data");
-            panic!("Unable to determine path to store data files.");
+        }, None => {
+            error!("{}: Could not read folder name from config file.", PLUGIN_NAME);
         }
     };
+
 }
 
 

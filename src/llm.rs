@@ -1,5 +1,6 @@
 // file: llm.rs
 
+use crate::{get_cfg, get_cfg_bool, get_cfg_int};
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
@@ -11,11 +12,12 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use crate::{document, llm};
+use crate::{cfg, document, llm};
 use crate::document::Document;
 use crate::network::build_llm_api_client;
 use crate::plugins::mod_summarize::PLUGIN_NAME;
-use crate::utils::{get_contexts_from_config, get_data_folder, get_plugin_config, make_unique_filename, save_to_disk_as_json, split_by_word_count};
+use crate::cfg::{get_plugin_config, get_data_folder};
+use crate::utils::{make_unique_filename, save_to_disk_as_json, split_by_word_count};
 
 pub const MIN_ACCEPTABLE_SUMMARY_CHARS: usize = 25;
 pub const MAX_TOKENS: f64 = 8000.0;
@@ -440,16 +442,58 @@ pub fn generate_using_ollama_api(ollama_svc_base_url: &str, ollama_client: &reqw
     return llm_output;
 }
 
-pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String) -> LLMParameters {
+
+/// Get user context (prompts) from application configuration.
+///
+/// # Arguments
+///
+/// * `app_config`:
+///
+/// returns: (String, String, String, String)
+pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String, String){
+
+    let mut summary_part_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
+    match app_config.get_string("summary_part_context") {
+        Ok(param_val_str) => summary_part_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'summary_part_context' from config file, using default, error: {}", e)
+    }
+
+    let mut insights_part_context: String = String::from("Read the following text and extract actions from it.\n\nTEXT:\n");
+    match app_config.get_string("insights_part_context") {
+        Ok(param_val_str) => insights_part_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'insights_part_context' from config file, using default, error: {}", e)
+    }
+
+    let mut summary_exec_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
+    match app_config.get_string("summary_exec_context") {
+        Ok(param_val_str) => summary_exec_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'summary_exec_context' from config file, using default, error: {}", e)
+    }
+
+    let mut system_context: String = String::from("You are an expert in analysing news and documents.");
+    match app_config.get_string("system_context") {
+        Ok(param_val_str) => system_context = param_val_str,
+        Err(e) => error!("Could not load parameter 'system_context' from config file, using default, error: {}", e)
+    }
+
+    return (summary_part_context, insights_part_context, summary_exec_context, system_context);
+}
+
+
+pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, plugin_name: &str) -> LLMParameters {
 
     // get llm sevice name:
     let mut llm_svc_name = String::from("ollama");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "llm_service"){
+    match get_plugin_config(&app_config, plugin_name, "llm_service"){
         Some(param_val_str) => llm_svc_name = param_val_str,
-        None => error!("Error getting LLM service from config, using default value: {}",
-            llm_svc_name)
+        None => error!(
+            "Error getting LLM service from config of plugin {}, using default value: {}",
+            plugin_name,
+            llm_svc_name
+        )
     }
 
+    // this is configured later on:
     let mut model_name = String::from("gemma2_27b");
 
     let mut system_context: String = String::from("");
@@ -464,7 +508,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String) 
         Some(param_val_str) => {
             match param_val_str.trim().parse(){
                 Ok(param_val) => overwrite = param_val,
-                Err(e) => error!("When parsing parameter 'fetch_timeout' as integer value: {}", e)
+                Err(e) => error!("When parsing parameter 'overwrite' as integer value: {}", e)
             }
         }, None => error!("Could not get parameter 'overwrite', using default value of: {}", overwrite)
     };
@@ -543,14 +587,16 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String) 
         },
         "ollama" => {
             summarize_function = llm::generate_using_ollama;
-            match app_config.get_string("ollama_svc_url") {
-                Ok(param_val_str) => svc_base_url = param_val_str,
-                Err(e) => error!("Could not load 'ollama_svc_url' from config: {}", e)
-            }
-            match app_config.get_string("ollama_model_name") {
-                Ok(param_val_str) => model_name = param_val_str,
-                Err(e) => error!("Could not load 'ollama_model_name' from config: {}", e)
-            }
+            svc_base_url = get_cfg!("ollama_svc_url", app_config, "http://127.0.0.1:11434/api/generate");
+            // match app_config.get_string("ollama_svc_url") {
+            //     Ok(param_val_str) => svc_base_url = param_val_str,
+            //     Err(e) => error!("Could not load 'ollama_svc_url' from config: {}", e)
+            // }
+            model_name = get_cfg!("ollama_model_name", app_config, "llama3.1");
+            // match app_config.get_string("ollama_model_name") {
+            //     Ok(param_val_str) => model_name = param_val_str,
+            //     Err(e) => error!("Could not load 'ollama_model_name' from config: {}", e)
+            // }
         },
         _ => error!("Unknown llm service specified in config: {}", llm_svc_name)
     }

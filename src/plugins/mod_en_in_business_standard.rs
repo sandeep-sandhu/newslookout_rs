@@ -14,7 +14,8 @@ use reqwest::blocking::Client;
 use crate::{document, network};
 use crate::document::Document;
 use crate::network::{make_http_client, read_network_parameters};
-use crate::utils::{get_data_folder, get_database_filename, get_urls_from_database};
+use crate::utils::{get_urls_from_database};
+use crate::cfg::{get_data_folder, get_database_filename};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_en_in_business_std";
 const PUBLISHER_NAME: &str = "Business Standard";

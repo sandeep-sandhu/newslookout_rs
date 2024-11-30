@@ -103,6 +103,8 @@ pub const DATA_PROC_IDENTIFY_SIMILAR_DOCS: usize = 64;
 /// Flag to indicate whether this document should be summarised using NLP models
 pub const DATA_PROC_SUMMARIZE: usize = 128;
 
+pub const DATA_PROC_EXTRACT_ACTIONS: usize = 256;
+
 
 
 

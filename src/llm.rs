@@ -1,6 +1,6 @@
 // file: llm.rs
 
-use crate::{get_cfg, get_cfg_bool, get_cfg_int};
+use crate::{get_cfg, get_cfg_bool, get_cfg_int, get_plugin_cfg};
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
@@ -287,13 +287,14 @@ pub fn prepare_chatgpt_payload(prompt: String, llm_params: &LLMParameters) -> Ch
 ///
 /// returns: String
 pub fn http_post_json_chatgpt(llm_params: &LLMParameters, json_payload: ChatGPTRequestPayload) -> String{
+
     // add json payload to body
     match llm_params.api_client.post(llm_params.svc_base_url.clone())
         .json(&json_payload)
         .send() {
-        Result::Ok(resp) => {
+        Ok(resp) => {
             match resp.json::<serde_json::value::Value>(){
-                Result::Ok( json ) => {
+                Ok( json ) => {
                     info!("chatgpt model response:\n{:?}", json);
                     if let Some(choices) = json.get("choices"){
                         if let Some(first_choice) = choices.get(0) {
@@ -302,14 +303,18 @@ pub fn http_post_json_chatgpt(llm_params: &LLMParameters, json_payload: ChatGPTR
                                     return content.to_string();
                                 }
                             }
+                            // get object: "logprobs" , get attrib: "content" array of Object -> {"bytes", "logprob"}
                         }
                     }
+                    // get and print string:  "model"
+                    // get and print object/dict: "usage" -> get integer attributes: "prompt_tokens", "total_tokens"
                 },
                 Err(e) => {
                     error!("When retrieving json from response: {}", e);
                     if let Some(err_source) = e.source(){
                         error!("Caused by: {}", err_source);
                     }
+                    info!("ChatGPT Payload: {:?}", json_payload);
                 },
             }
         }
@@ -318,123 +323,27 @@ pub fn http_post_json_chatgpt(llm_params: &LLMParameters, json_payload: ChatGPTR
             if let Some(err_source) = e.source(){
                 error!("Caused by: {}", err_source);
             }
+            info!("ChatGPT Payload: {:?}", json_payload);
         }
     }
     return String::from("");
 }
 
+/// Generate text using Ollama API service
+///
+/// # Arguments
+///
+/// * `ollama_svc_base_url`: The base url for the API, e.g. http://127.0.0.1:11434/api/generate
+/// * `ollama_client`: The reqwest client to be used for HTTP POSTing the JSON payload to the service
+/// * `model_name`: The name of the model registered with ollama
+/// * `summary_part_prompt`: The complete prompt + context for the LLM
+/// * `app_config`: The Application config object
+///
+/// returns: String
+pub fn generate_using_ollama_api(ollama_svc_base_url: &str, ollama_client: &reqwest::blocking::Client, model_name: &str, prompt_and_context: &str, app_config: &Config) -> String {
+    debug!("Calling ollama service with prompt: \n{}", prompt_and_context);
 
-pub fn update_doc(http_api_client: &Client, mut input_doc: document::Document, model_name: &str, app_config: &Config, llm_fn: fn(&str, &Client, &str, &str, &Config) -> String) -> document::Document{
-    const MIN_ACCEPTABLE_SUMMARY_LEN: usize = 20;
-    const MIN_ACCEPTABLE_INSIGHTS_LEN: usize = 3;
-
-    let loopiters = input_doc.text_parts.len() as i32;
-    info!("Starting to process {} parts of document - '{}'", loopiters, input_doc.title);
-
-    let mut svc_url: String = String::from("http://127.0.0.1/api/generate");
-    let mut overwrite: bool = false;
-    let mut save_intermediate: bool = true;
-
-    let binding = get_data_folder(&app_config);
-    let data_folder_name = binding.to_str().unwrap_or_default();
-    let mut temperature: f64 = 0.0;
-
-    // get contexts from config file:
-    let (summary_part_context, insights_part_context, summary_exec_context, system_context) = get_contexts_from_config(&app_config);
-
-    // make full path by joining folder to unique filename
-    let json_file_path = Path::new(data_folder_name).join(make_unique_filename(&input_doc, "json"));
-    input_doc.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
-
-    // pop out each part, process it and push to new vector, replace this updated vector in document
-    let mut updated_text_parts:  Vec<HashMap<String, Value>> = Vec::new();
-    let mut to_generate_summary: bool = true;
-    let mut to_generate_insights: bool = true;
-    let mut all_summaries: String = String::new();
-    let mut all_actions: String = String::new();
-
-    for i in 0..loopiters {
-        match &input_doc.text_parts.pop(){
-            None => {break;}
-            Some(text_part_map) => {
-                // store results of llm into a copy of this text_part
-                let mut text_part_map_clone = text_part_map.clone();
-                to_generate_summary = true;
-                to_generate_insights = true;
-                let key = text_part_map.get("id").expect("Each text part in the document should contain key 'id'");
-                let text_part = text_part_map.get("text").expect("Each text part in the document should contain key 'text'");
-                info!("Processing text part #{}", key);
-
-                // check if there is a key "summary", if so:
-                if let Some(existing_summary) = text_part_map.get("summary") {
-                    if (overwrite == false) & (existing_summary.to_string().len() > MIN_ACCEPTABLE_SUMMARY_LEN) {
-                        info!("Not overwriting existing summary for part #{}", key);
-                        to_generate_summary = false;
-                    }
-                }
-                if to_generate_summary == true{
-                    let summary_part_prompt = build_llm_prompt(model_name, system_context.as_str(), summary_part_context.as_str(), text_part.to_string().as_str());
-                    // call service with payload to generate summary of part:
-                    let summary_part = llm_fn(svc_url.as_str(), http_api_client, model_name, summary_part_prompt.as_str(), app_config);
-                    all_summaries.push_str("\n");
-                    all_summaries.push_str(summary_part.as_str());
-                    text_part_map_clone.insert("summary".to_string(), Value::String(summary_part));
-                }
-
-                if let Some(existing_insights) = text_part_map.get("insights") {
-                    if (overwrite == false) & (existing_insights.to_string().len() > MIN_ACCEPTABLE_INSIGHTS_LEN) {
-                        info!("Not overwriting existing insights for part #{}", key);
-                        to_generate_insights = false;
-                    }
-                }
-                if to_generate_insights == true {
-                    // call service with payload to generate insights:
-                    let insights_part_prompt = build_llm_prompt(model_name, system_context.as_str(), insights_part_context.as_str(), text_part.to_string().as_str());
-                    // call service with payload to generate insights of part:s
-                    let insights_part = llm_fn(svc_url.as_str(), http_api_client, model_name, insights_part_prompt.as_str(), app_config);
-                    all_actions.push_str(insights_part.as_str());
-                    _ = text_part_map_clone.insert("insights".to_string(), Value::String(insights_part));
-                }
-
-                // put the updated text part into a new vector
-                updated_text_parts.push(text_part_map_clone);
-                // save to file raw_doc.filename
-                if save_intermediate == true{
-                    save_to_disk_as_json(&input_doc, json_file_path.to_str().unwrap_or_default());
-                }
-
-            }
-        }
-    }
-    // reverse the updated text parts vector:
-    updated_text_parts.reverse();
-    // store it in the document, replacing the previous contents
-    input_doc.text_parts = updated_text_parts;
-
-    // generate the exec summary:
-    let exec_summary_prompt= build_llm_prompt(model_name, system_context.as_str(), summary_exec_context.as_str(), all_summaries.as_str());
-    // call service with payload to generate summary:
-    let exec_summary= llm_fn(svc_url.as_str(), http_api_client, model_name, exec_summary_prompt.as_str(), app_config);
-    // add to generated_content
-    input_doc.generated_content.insert("exec_summary".to_string(), exec_summary);
-
-    // generate the actions summary:
-    let actions_summary_prompt= build_llm_prompt(model_name, system_context.as_str(), summary_exec_context.as_str(), all_actions.as_str());
-    // call service with payload to generate actions summary:
-    let actions_summary= llm_fn(svc_url.as_str(), http_api_client, model_name, actions_summary_prompt.as_str(), app_config);
-    input_doc.generated_content.insert("actions_summary".to_string(), actions_summary);
-
-    save_to_disk_as_json(&input_doc, json_file_path.to_str().unwrap_or_default());
-
-    info!("Model {} completed processing document titled: '{}' ", model_name, input_doc.title);
-    return input_doc;
-}
-
-
-pub fn generate_using_ollama_api(ollama_svc_base_url: &str, ollama_client: &reqwest::blocking::Client, model_name: &str, summary_part_prompt: &str, app_config: &Config) -> String {
-    debug!("Calling ollama service with prompt: \n{}", summary_part_prompt);
-
-    let json_payload = prepare_ollama_payload(summary_part_prompt, model_name, 8192, 8192, 0);
+    let json_payload = prepare_ollama_payload(prompt_and_context, model_name, 8192, 8192, 0);
     debug!("{:?}", json_payload);
 
     let llm_output = http_post_json_ollama(ollama_svc_base_url, &ollama_client, json_payload);
@@ -452,31 +361,23 @@ pub fn generate_using_ollama_api(ollama_svc_base_url: &str, ollama_client: &reqw
 /// returns: (String, String, String, String)
 pub fn get_contexts_from_config(app_config: &Config) -> (String, String, String, String){
 
-    let mut summary_part_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
-    match app_config.get_string("summary_part_context") {
-        Ok(param_val_str) => summary_part_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'summary_part_context' from config file, using default, error: {}", e)
-    }
+    let summary_part_context: String = get_cfg!(
+        "summary_part_context", app_config, "Summarise the following text concisely.\n\nTEXT:\n"
+    );
 
-    let mut insights_part_context: String = String::from("Read the following text and extract actions from it.\n\nTEXT:\n");
-    match app_config.get_string("insights_part_context") {
-        Ok(param_val_str) => insights_part_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'insights_part_context' from config file, using default, error: {}", e)
-    }
+    let insights_part_context: String = get_cfg!(
+        "insights_part_context", app_config, "Read the following text and extract actions from it.\n\nTEXT:\n"
+    );
 
-    let mut summary_exec_context: String = String::from("Summarise the following text concisely.\n\nTEXT:\n");
-    match app_config.get_string("summary_exec_context") {
-        Ok(param_val_str) => summary_exec_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'summary_exec_context' from config file, using default, error: {}", e)
-    }
+    let summary_exec_context: String = get_cfg!(
+        "summary_exec_context", app_config, "Summarise the following text concisely.\n\nTEXT:\n"
+    );
 
-    let mut system_context: String = String::from("You are an expert in analysing news and documents.");
-    match app_config.get_string("system_context") {
-        Ok(param_val_str) => system_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'system_context' from config file, using default, error: {}", e)
-    }
+    let system_context: String = get_cfg!(
+        "system_context", app_config, "You are an expert in analysing news and documents."
+    );
 
-    return (summary_part_context, insights_part_context, summary_exec_context, system_context);
+    (summary_part_context, insights_part_context, summary_exec_context, system_context)
 }
 
 
@@ -484,22 +385,13 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
 
     // get llm sevice name:
     let mut llm_svc_name = String::from("ollama");
-    match get_plugin_config(&app_config, plugin_name, "llm_service"){
+    match get_plugin_cfg!(plugin_name, "llm_service", app_config) {
         Some(param_val_str) => llm_svc_name = param_val_str,
         None => error!(
             "Error getting LLM service from config of plugin {}, using default value: {}",
             plugin_name,
             llm_svc_name
         )
-    }
-
-    // this is configured later on:
-    let mut model_name = String::from("gemma2_27b");
-
-    let mut system_context: String = String::from("");
-    match app_config.get_string("system_context") {
-        Ok(param_val_str) => system_context = param_val_str,
-        Err(e) => error!("Could not load parameter 'system_context' from config: {}", e)
     }
 
     // get overwrite config parameter
@@ -510,7 +402,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
                 Ok(param_val) => overwrite = param_val,
                 Err(e) => error!("When parsing parameter 'overwrite' as integer value: {}", e)
             }
-        }, None => error!("Could not get parameter 'overwrite', using default value of: {}", overwrite)
+        }, None => error!("{}: Could not get parameter 'overwrite', using default value of: {}", PLUGIN_NAME, overwrite)
     };
 
     let mut max_word_count: usize = 850;
@@ -520,39 +412,36 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
                 Ok(param_val) => max_word_count = param_val,
                 Err(e) => error!("When parsing parameter 'max_word_count': {}", e)
             }
-        }, None => error!("Could not get parameter 'max_word_count', using default: {}", overwrite)
+        }, None => error!("{}: Could not get parameter 'max_word_count', using default: {}", PLUGIN_NAME, max_word_count)
     };
 
     // get fetch timeout config parameter
-    let mut fetch_timeout: u64 = 3700;
-    match app_config.get_int("model_api_timeout"){
-        Ok(param_int) => {
-            fetch_timeout = param_int as u64;
-        }, Err(e) => error!("Could not get parameter 'fetch_timeout': {}", e)
-    };
+    let mut fetch_timeout: u64 = get_cfg_int!("model_api_timeout", app_config, 30) as u64;
 
-    let mut max_llm_context_tokens: u64 = 8192;
-    match app_config.get_int("max_llm_context_tokens"){
-        Ok(param_int) => {
-            max_llm_context_tokens = param_int as u64;
-        }, Err(e) => error!("Could not get parameter 'max_llm_context_tokens': {}", e)
-    };
+    // set the model service connect timeout:
+    let connect_timeout: u64 = fetch_timeout as u64;
 
-    let mut max_gen_tokens: u64 = 8192;
-    match app_config.get_int("max_gen_tokens"){
-        Ok(param_int) => {
-            max_gen_tokens = param_int as u64;
-        }, Err(e) => error!("Could not get parameter 'max_gen_tokens': {}", e)
-    };
+    let mut max_llm_context_tokens: isize = get_cfg_int!("max_llm_context_tokens", app_config, 8192);
 
-    // set a low connect timeout:
-    let connect_timeout: u64 = 15;
-    let mut http_api_client = build_llm_api_client(connect_timeout, fetch_timeout, None, None);
+    let mut max_gen_tokens: isize = get_cfg_int!("max_gen_tokens", app_config, 8192);
+
+    // build default client to be used by service endpoints
+    let mut http_api_client = build_llm_api_client(
+        connect_timeout,
+        fetch_timeout,
+        None,
+        None
+    );
 
     let mut summarize_function: fn(&str, &LLMParameters)-> String =
         llm::generate_using_ollama;
 
     let mut svc_base_url = String::from("http://127.0.0.1:11434/api/generate");
+
+    let mut system_context: String = get_cfg!("system_context", app_config, "Act as an expert");
+
+    // this is configured based on llm service:
+    let mut model_name = String::from("gemma2_27b");
 
     match llm_svc_name.as_str() {
         "chatgpt" => {
@@ -565,38 +454,18 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
                 None,
                 Some(custom_headers)
             );
-            match app_config.get_string("chatgpt_svc_url") {
-                Ok(param_val_str) => svc_base_url = param_val_str,
-                Err(e) => error!("Could not load 'chatgpt_svc_url' from config: {}", e)
-            }
-            match app_config.get_string("chatgpt_model_name") {
-                Ok(param_val_str) => model_name = param_val_str,
-                Err(e) => error!("Could not load 'chatgpt_model_name' from config: {}", e)
-            }
+            svc_base_url = get_cfg!("chatgpt_svc_url", app_config, "https://api.openai.com/v1/chat/completions");
+            model_name = get_cfg!("chatgpt_model_name", app_config, "gpt-4o-mini");
         },
         "gemini" => {
             summarize_function = llm::generate_using_gemini;
-            match app_config.get_string("gemini_svc_url") {
-                Ok(param_val_str) => svc_base_url = param_val_str,
-                Err(e) => error!("Could not load 'gemini_svc_url' from config: {}", e)
-            }
-            match app_config.get_string("gemini_model_name") {
-                Ok(param_val_str) => model_name = param_val_str,
-                Err(e) => error!("Could not load 'gemini_model_name' from config: {}", e)
-            }
+            svc_base_url = get_cfg!("gemini_svc_url", app_config, "https://generativelanguage.googleapis.com/v1beta/models/");
+            model_name = get_cfg!("gemini_model_name", app_config, "gemini-1.0-pro");
         },
         "ollama" => {
             summarize_function = llm::generate_using_ollama;
             svc_base_url = get_cfg!("ollama_svc_url", app_config, "http://127.0.0.1:11434/api/generate");
-            // match app_config.get_string("ollama_svc_url") {
-            //     Ok(param_val_str) => svc_base_url = param_val_str,
-            //     Err(e) => error!("Could not load 'ollama_svc_url' from config: {}", e)
-            // }
             model_name = get_cfg!("ollama_model_name", app_config, "llama3.1");
-            // match app_config.get_string("ollama_model_name") {
-            //     Ok(param_val_str) => model_name = param_val_str,
-            //     Err(e) => error!("Could not load 'ollama_model_name' from config: {}", e)
-            // }
         },
         _ => error!("Unknown llm service specified in config: {}", llm_svc_name)
     }
@@ -777,11 +646,13 @@ mod tests {
     use config::Config;
     use log::debug;
     use crate::llm;
-    use crate::llm::{GeminiRequestPayload, prepare_chatgpt_headers, prepare_gemini_api_payload};
+    use crate::llm::{GeminiRequestPayload, prepare_chatgpt_headers, prepare_gemini_api_payload, LLMParameters};
     use crate::network::build_llm_api_client;
 
     #[test]
     fn test_generate_using_llm(){
+        let svc_url = "https://api.openai.com/v1/chat/completions";
+        let model_name = "gpt-4o-mini";
         let empty_config = Config::builder().build().unwrap();
         let api_client = build_llm_api_client(
             15,
@@ -789,14 +660,27 @@ mod tests {
             None,
             Some(prepare_chatgpt_headers(&empty_config))
         );
-        // let resp = mod_chatgpt::generate_using_llm(
-        //     "https://api.openai.com/v1/chat/completions",
-        //     &api_client,
-        //     "gpt-4o-mini",
+        let llm_params = LLMParameters {
+            llm_service: "chatgpt".to_string(),
+            api_client,
+            sumarize_fn: llm::generate_using_chatgpt,
+            fetch_timeout: 300,
+            overwrite_existing_value: true,
+            save_intermediate: true,
+            max_summary_wc: 8192,
+            model_temperature: 0.0,
+            prompt: "".to_string(),
+            max_tok_gen: 8192,
+            model_name: model_name.to_string(),
+            num_context: 0,
+            svc_base_url: svc_url.to_string(),
+            system_context: "You are an expert".to_string(),
+        };
+        // let resp = llm::generate_using_chatgpt(
         //     "Why is the sky blue? Reply very concisely.",
-        //     &empty_config
+        //     &llm_params
         // );
-        // debug!("Response from model = {:?}", resp);
+        // println!("Response from model = {:?}", resp);
         assert_eq!(1,1);
     }
 

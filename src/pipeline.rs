@@ -21,7 +21,7 @@ use rusqlite;
 use crate::document;
 use crate::network;
 use crate::utils;
-use crate::plugins::{mod_en_in_business_standard, rbi, mod_offline_docs, mod_classify, split_text, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore};
+use crate::plugins::{mod_en_in_business_standard, rbi, mod_offline_docs, mod_classify, split_text, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore, mod_cmdline};
 use crate::document::{Document};
 use crate::utils::{make_unique_filename, save_to_disk_as_json};
 
@@ -290,6 +290,16 @@ pub fn load_dataproc_plugins(app_config: &Config) -> BinaryHeap<DataProcPlugin> 
                                     priority: priority,
                                     enabled: plugin_enabled,
                                     method: mod_solrsubmit::process_data,
+                                }
+                            );
+                        },
+                        "mod_cmdline" => {
+                            debug!("Loading the plugin: {}",plugin_name);
+                            plugin_heap.push(
+                                DataProcPlugin {
+                                    priority: priority,
+                                    enabled: plugin_enabled,
+                                    method: mod_cmdline::process_data,
                                 }
                             );
                         },

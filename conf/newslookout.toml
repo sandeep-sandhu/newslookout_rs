@@ -112,8 +112,8 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
-, {"enabled"=true, "name"="rbi", "type"="retriever", "priority"=1, "maxpages"=10, "items_per_page"=10}
- , {"enabled"=false, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=3000}
+ , {"enabled"=true, "name"="rbi", "type"="retriever", "priority"=1, "maxpages"=10, "items_per_page"=10}
+ , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=3000}
  # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
  , {"enabled"=true, "name"="split_text", "type"="data_processor", "priority"=1, "min_word_limit_to_split"=600}
@@ -131,7 +131,8 @@ plugins = [
  , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=5, "llm_service"="ollama", "overwrite"=false, "max_word_count"=850}
  , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}
  , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=8, "destination"="vectorindex", "file_format"="json"}
- , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=9, "destination"="file", "file_format"="json"}
+ , {"enabled"=true, "name"="mod_cmdline", "type"="data_processor", "priority"=9, "command_name"="C:\\temp\\testecho.cmd"}
+ , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=10, "destination"="file", "file_format"="json"}
 ]
 
 model_api_timeout=200
@@ -149,10 +150,10 @@ chatgpt_model_name="gpt-4o-mini"
 gemini_svc_url="https://generativelanguage.googleapis.com/v1beta/models/"
 gemini_model_name="gemini-1.0-pro"
 
-prompt_summary_part="Summarize the following text in less than 200 words. Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.\n\nTEXT:"
+prompt_summary_part="Summarize the following text in less than 250 words. Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.\n\nTEXT:"
 
-prompt_summary_exec="Summarize the following text in less than 900 words.  Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go.\n\nTEXT:"
+prompt_summary_exec="Summarize the following text in less than 500 words.  Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go.\n\nTEXT:"
 
-system_context = "Act as an expert that is analysing the news."
+system_context = "Act as an expert who is analysing the news."
 
 ## end of file ##

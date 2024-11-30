@@ -11,6 +11,13 @@ use crate::utils::{clean_text, get_text_from_element, to_local_datetime};
 
 
 
+/// Extract plain text form HTML content
+///
+/// # Arguments
+///
+/// * `html_content`: The html data that needs to be extrcted from.
+///
+/// returns: String
 pub fn extract_text_from_html(html_content: &str) -> String{
     let html_root_elem = scraper::html::Html::parse_document(html_content);
     // TODO: apply text density calculations, and
@@ -18,6 +25,14 @@ pub fn extract_text_from_html(html_content: &str) -> String{
     return get_text_from_element(html_root_elem.root_element());
 }
 
+/// Extract document details from a row of news article listings produced by liferay portal
+///
+/// # Arguments
+///
+/// * `row_each`: The Element object of the row from which the details of the document are to be extracted
+/// * `source_url`: The source URL
+///
+/// returns: Document
 pub fn extract_doc_from_row(row_each: ElementRef, source_url: &str) -> Document{
 
     let alink_selector = scraper::Selector::parse("a.mtm_list_item_heading").unwrap();

@@ -41,16 +41,18 @@ use log4rs::encode::pattern::PatternEncoder;
 use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPlugin, start_data_pipeline};
 
 pub mod plugins {
+    pub mod mod_en_in_indiankanoon;
     pub(crate) mod rbi;
     pub(crate) mod mod_en_in_business_standard;
     pub mod mod_offline_docs;
     pub mod mod_classify;
-    pub(crate) mod split_text;
+    pub mod split_text;
     pub mod mod_dedupe;
     pub mod mod_vectorstore;
     pub mod mod_summarize;
     pub mod mod_solrsubmit;
     pub mod mod_persist_data;
+    pub mod mod_cmdline;
 }
 
 pub mod network;

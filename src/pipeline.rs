@@ -189,7 +189,7 @@ pub fn load_retriever_plugins(app_config: &Config) -> Vec<RetrieverPlugin> {
                     }
                 }
             }
-            Err(e) => {}
+            Err(e) => {error!("When loading retriever plugin from config, error was: {}", e)}
         }
     }
     return retriever_plugins;
@@ -206,7 +206,7 @@ pub fn load_dataproc_plugins(app_config: &Config) -> BinaryHeap<DataProcPlugin> 
 
     let mut plugin_heap: BinaryHeap<DataProcPlugin> = BinaryHeap::new();
     // default value:
-    let mut matched_data_proc_fn: fn(Sender<Document>, Receiver<Document>, &Config) = split_text::process_data;
+    let matched_data_proc_fn: fn(Sender<Document>, Receiver<Document>, &Config) = split_text::process_data;
 
     info!("Data processing pipeline: Reading the configuration and starting the plugins.");
     let mut plugins_configured = Vec::new();
@@ -372,7 +372,7 @@ pub fn data_processing_pipeline(
 
     // Wait for documents on channel previous_rx and,
     // transmit them onwards to the output queue.
-    for mut doc in previous_rx {
+    for doc in previous_rx {
         debug!("Received document titled - '{}' at end of data processing pipeline ", doc.title);
         dataproc_docs_output_tx.send(doc).expect("when sending doc via tx");
     }
@@ -419,12 +419,12 @@ pub fn start_data_pipeline(
             data_proc_pipeline_tx,
             &config_copy)
     ){
-        Ok(handle) => info!("Launched data processing thread"),
+        Ok(_handle) => info!("Launched data processing thread"),
         Err(e) => error!("Could not spawn thread for data processing plugin, error: {}", e)
     }
 
     // start the retriever plugin threads: they all send via transmit
-    let retriever_thread_handles = start_retrieval_pipeline(retriever_plugins, retrieve_thread_tx, app_config);
+    let _retriever_thread_handles = start_retrieval_pipeline(retriever_plugins, retrieve_thread_tx, app_config);
 
     // get all processed documents from the output of the data processing pipeline and
     // write these to the database table

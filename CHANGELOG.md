@@ -1,5 +1,36 @@
 # Change Log
 
+
+
+### Release 0.4.5
+  - Added better logging to llm functions and modules using these (summarize)
+  - Fixed compile time warnings throughout the project
+
+### Release 0.4.3
+  - Added new module for running arbitrary os commands with filename of retrieved document as the argument.
+
+### Release 0.4.2
+  - Fixed PLUGIN reference in llm module function - prepare_llm_parameters
+  - In the same function, fixed the error message for retrieving value of overwrite key
+  - Fixed the list of starter urls list for module rbi
+  - Removed nested page listing urls in starter URLs, e.g. those for reports.
+  - If PDF file exists and text attrib size is > 4 chars, then don't extract text from pdf
+  - Summarize parts only if text + prompt size longer than max input tokens (e.g. 8100 tokens)
+  - For the offline plugin, added folder name in config, to pick up details from a different folder than data folder.
+
+### Release 0.4.1:
+  - Bug fixes to 0.4.0
+
+### Release 0.4.0:
+
+  - Broke-up library (queue method start_pipeline) to individual components that define each thread process.
+  - Changed newslook start message
+  - Changed semver to 0.4.0
+  - Change function name run_app to -> start_pipeline
+  - Moved chatgpt, ollama, gemini codes out of plugin code into llm module
+  - Moved logic to split text to llm module.
+  - Added new starter URLs to module rbi
+
 ### Release 0.3.2
   - Bug fixes and patches for previous release
   - Add methods in chatgpt for api calls, use #tests to check these out.

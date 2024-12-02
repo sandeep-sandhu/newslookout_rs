@@ -22,7 +22,7 @@ const PUBLISHER_NAME: &str = "Index via SOLR Service";
 ///
 pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, config: &Config){
 
-    info!("{}: Getting configuration.", PLUGIN_NAME);
+    info!("{}: Getting configuration for {}", PLUGIN_NAME, PUBLISHER_NAME);
 
     for doc in rx {
         info!("Saving processed document titled - {}", doc.title);

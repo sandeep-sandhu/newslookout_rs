@@ -79,7 +79,7 @@ pub fn make_http_client(netw_params: &NetworkParameters) -> reqwest::blocking::C
     if let Some(referrer) = netw_params.referrer_url.clone() {
         match HeaderValue::from_str(referrer.as_str()) {
             Ok(header_referrer) => headers.insert(reqwest::header::REFERER, header_referrer),
-            Err(e) => headers.insert(reqwest::header::REFERER, HeaderValue::from_static("https://www.google.com/"))
+            Err(_e) => headers.insert(reqwest::header::REFERER, HeaderValue::from_static("https://www.google.com/"))
         };
     }
 

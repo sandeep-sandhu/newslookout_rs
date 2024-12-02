@@ -24,7 +24,6 @@ use crate::cfg::{get_data_folder, get_plugin_config};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_offline_docs";
 const PUBLISHER_NAME: &str = "Read documents from disk";
-const STARTER_URLS: [(&str, &str); 0] = [];
 
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
 
@@ -109,9 +108,6 @@ fn load_document_from_file(doc_file_path: PathBuf, filename: String, file_extens
 
     match fs::File::open(doc_file_path.clone()){
         Ok(open_file) => {
-
-            fs::File::open(doc_file_path.clone());
-
             // check and implement file extension processing for other file extensions:
             match file_extension{
                 "json" => {

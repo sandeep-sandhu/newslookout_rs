@@ -36,8 +36,13 @@ use std::io::Write;
 use ::config::Config;
 use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Root};
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::encode::pattern::PatternEncoder;
+use log4rs::config::{Appender, Root};
+use log4rs::filter::threshold::ThresholdFilter;
 use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPlugin, start_data_pipeline};
 
 pub mod plugins {
@@ -117,7 +122,7 @@ pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
 pub fn init_logging(config: &Config){
     // setup logging:
     match config.get_string("log_file"){
-        Ok(logfile) =>{
+        Ok(mut logfile) =>{
 
             //set loglevel parameter from log file:
             let mut app_loglevel = LevelFilter::Info;
@@ -146,7 +151,7 @@ pub fn init_logging(config: &Config){
             // let window_size = 10;
             // let fixed_window_roller =
             //     FixedWindowRoller::builder().build(logfile.as_str(), window_size).unwrap();
-            // let size_trigger = SizeTrigger::new(size_limit);
+            // let size_trigger = SizeTrigger::new(size_limit as u64);
             // let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
             // let config = log4rs::config::Config::builder().appender(
             //         Appender::builder()
@@ -156,7 +161,7 @@ pub fn init_logging(config: &Config){
             //                 Box::new(
             //                     RollingFileAppender::builder()
             //                         .encoder(Box::new(PatternEncoder::new("{d} {l}::{m}{n}")))
-            //                         .build(logfile, Box::new(compound_policy)),
+            //                         .build(logfile.clone(), Box::new(compound_policy)),
             //                 ),
             //             ),
             //     )
@@ -164,11 +169,11 @@ pub fn init_logging(config: &Config){
             //         Root::builder()
             //             .appender("logfile")
             //             .build(LevelFilter::Info),
-            //     )?;
+            //     ).expect("Valid log configuration.");
 
             let logfile = FileAppender::builder()
                 .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)(local)} {i} [{l}] - {m}{n}")))
-                .build(logfile)
+                .build(logfile.clone())
                 .expect("Cound not init log file appender.");
 
             let logconfig = log4rs::config::Config::builder()

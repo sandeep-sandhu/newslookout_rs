@@ -416,14 +416,14 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
     };
 
     // get fetch timeout config parameter
-    let mut fetch_timeout: u64 = get_cfg_int!("model_api_timeout", app_config, 30) as u64;
+    let fetch_timeout: u64 = get_cfg_int!("model_api_timeout", app_config, 30) as u64;
 
     // set the model service connect timeout:
     let connect_timeout: u64 = fetch_timeout as u64;
 
-    let mut max_llm_context_tokens: isize = get_cfg_int!("max_llm_context_tokens", app_config, 8192);
+    let max_llm_context_tokens: isize = get_cfg_int!("max_llm_context_tokens", app_config, 8192);
 
-    let mut max_gen_tokens: isize = get_cfg_int!("max_gen_tokens", app_config, 8192);
+    let max_gen_tokens: isize = get_cfg_int!("max_gen_tokens", app_config, 8192);
 
     // build default client to be used by service endpoints
     let mut http_api_client = build_llm_api_client(
@@ -438,7 +438,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
 
     let mut svc_base_url = String::from("http://127.0.0.1:11434/api/generate");
 
-    let mut system_context: String = get_cfg!("system_context", app_config, "Act as an expert");
+    let system_context: String = get_cfg!("system_context", app_config, "Act as an expert");
 
     // this is configured based on llm service:
     let mut model_name = String::from("gemma2_27b");
@@ -447,7 +447,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
         "chatgpt" => {
             summarize_function = llm::generate_using_chatgpt;
             // prepare the http client for the REST service
-            let mut custom_headers = prepare_chatgpt_headers(app_config);
+            let custom_headers = prepare_chatgpt_headers(app_config);
             http_api_client = build_llm_api_client(
                 connect_timeout,
                 fetch_timeout,

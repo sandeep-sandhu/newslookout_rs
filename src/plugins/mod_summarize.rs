@@ -9,7 +9,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderName};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::{document, llm};
+use crate::{document, get_cfg, llm};
 use crate::llm::{prepare_llm_parameters, LLMParameters, MAX_TOKENS, MIN_ACCEPTABLE_SUMMARY_CHARS, TOKENS_PER_WORD};
 use crate::network::build_llm_api_client;
 use crate::utils::{word_count};
@@ -35,28 +35,14 @@ pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Docum
     info!("{}: Getting configuration specific to the module.", PLUGIN_NAME);
     let mut doc_counter: u32 = 0;
 
-    let mut prompt_summary_part = String::from("prompt_summary_part");
-    match app_config.get_string("prompt_summary_part") {
-        Ok(param_val) => prompt_summary_part = param_val,
-        Err(e) => error!("When getting prompt part summary: {}, using default value: {}",
-            e, prompt_summary_part)
-    }
+    let mut prompt_summary_part = get_cfg!("prompt_summary_part", app_config, "Summarize this text:\n");
 
-    let mut prompt_summary_exec = String::from("prompt_summary_exec");
-    match app_config.get_string("prompt_summary_exec") {
-        Ok(param_val) => prompt_summary_exec = param_val,
-        Err(e) => error!("When getting prompt exec summary: {}, using default value: {}",
-            e, prompt_summary_exec)
-    }
+    let mut prompt_summary_exec = get_cfg!("prompt_summary_exec", app_config, "Summarize this text:\n");
 
     let mut llm_params = prepare_llm_parameters(app_config, prompt_summary_part.clone(), PLUGIN_NAME);
 
     // process each document received and return back to next handler:
     for mut doc in rx {
-
-        info!("{}: Started processing document titled - '{}',  with {} parts.",
-            PLUGIN_NAME, doc.title, doc.text_parts.len()
-        );
 
         update_doc(&mut llm_params, &mut doc, prompt_summary_part.as_str(), prompt_summary_exec.as_str());
 
@@ -70,8 +56,21 @@ pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Docum
 }
 
 
+/// Generate the summary of this document's text.
+/// If the document size (measured in tokens of the LLM's tokenizer) is less than the maximum
+/// permissible, then the entire summary is generated in one go.
+/// Or else, it is broken into parts and summarised by parts first before generating the executive
+/// summary from these summaries of parts.
+///
+/// # Arguments
+///
+/// * `llm_params`:
+/// * `raw_doc`:
+/// * `prompt_part`:
+/// * `prompt_exec_summary`:
+///
+/// returns: ()
 fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, prompt_part: &str, prompt_exec_summary: &str) {
-
 
     let summarize_fn = llm_params.sumarize_fn;
 
@@ -92,7 +91,11 @@ fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, 
     // break up and process only if longer than max context:
     if full_text_tokens > (llm_params.num_context as f64) {
 
+        info!("{}: Summarizing in {} parts, document - '{}'",
+            PLUGIN_NAME, raw_doc.text_parts.len(), raw_doc.title
+        );
         llm_params.prompt = prompt_part.to_string();
+        let mut part_no = raw_doc.text_parts.len();
 
         // pop out each part, process it and push to new vector, replace this updated vector in document
         let mut updated_text_parts:  Vec<HashMap<String, Value>> = Vec::new();
@@ -102,7 +105,6 @@ fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, 
             match &raw_doc.text_parts.pop(){
                 None => {break;}
                 Some(text_part) => {
-
                     // if we should not overwrite, check whether a value exists
                     if llm_params.overwrite_existing_value == false {
                         match text_part.get("summary"){
@@ -113,8 +115,13 @@ fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, 
                                     // add as-is to output vector
                                     let mut text_part_map_clone = text_part.clone();
                                     updated_text_parts.push(text_part_map_clone);
+                                    info!("Not re-generating summary for part #{}", part_no);
                                     // do not proceed further to generate summary:
                                     continue;
+                                } else {
+                                    info!("Although overwrite={}, existing summary is inadequate, so re-generating it for part #{}",
+                                        llm_params.overwrite_existing_value,
+                                        part_no);
                                 }
                             }
                             _ => {}
@@ -124,28 +131,38 @@ fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, 
                     // else, compute the summary for this part:
                     match text_part.get("text"){
                         Some(text_string) => {
-                            info!("Started generating summary for text part");
-                            let mut text_part_map_clone = text_part.clone();
-                            let summary_text = summarize_fn(
-                                text_string.to_string().as_str(),
-                                llm_params
-                            );
-                            _ = text_part_map_clone.insert("summary".to_string(), Value::String(summary_text.clone()));
-                            updated_text_parts.push(text_part_map_clone);
-                            all_summaries.push_str("\n");
-                            all_summaries.push_str(summary_text.as_str());
+                            let this_parts_text_length = text_string.to_string().len();
+                            if this_parts_text_length > MIN_ACCEPTABLE_SUMMARY_CHARS {
+                                info!("Summarizing part #{}", part_no);
+                                let mut text_part_map_clone = text_part.clone();
+                                let summary_text = summarize_fn(
+                                    text_string.to_string().as_str(),
+                                    llm_params
+                                );
+                                _ = text_part_map_clone.insert("summary".to_string(), Value::String(summary_text.clone()));
+                                updated_text_parts.push(text_part_map_clone);
+                                all_summaries.push_str("\n");
+                                all_summaries.push_str(summary_text.as_str());
+                            }
+                            else {
+                                error!("Inadequate quantity of text to summarize (length = {}) for part #{}", this_parts_text_length, part_no);
+                            }
                         },
                         None => {}
                     }
                 }
             }
+            part_no = part_no - 1;
         }
         // put updated text_parts into document:
         updated_text_parts.reverse();
         raw_doc.text_parts = updated_text_parts;
-
-    }else{
+    }
+    else {
         // use original doc for context:
+        info!("{}: Summarizing entire document at once - '{}'",
+            PLUGIN_NAME, raw_doc.title
+        );
         all_summaries = raw_doc.text.clone();
     }
 
@@ -163,7 +180,7 @@ fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, 
         Some(existing_exec_summary) => {
             // exec summary exists, but it is not adequate, so re-generate:
             if existing_exec_summary.to_string().len() < MIN_ACCEPTABLE_SUMMARY_CHARS {
-                info!("Executive summary would need to be generated in {} parts.",
+                info!("Generating executive summary (in {} parts)",
                         count_exec_summ_sub_parts);
                 let exec_summary_text = summarize_fn(
                     all_summaries.as_str(),

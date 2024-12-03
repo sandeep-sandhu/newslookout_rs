@@ -141,7 +141,7 @@ pub fn http_post_json_gemini<'post>(service_url: &str, client: &reqwest::blockin
 
             match resp.json::<serde_json::value::Value>(){
                 Result::Ok( json ) => {
-                    info!("Gemini model response:\n{:?}", json);
+                    debug!("Gemini model response:\n{:?}", json);
                     if let Some(resp_candidates) = json.get("candidates"){
 
                         if let Some(first_candidate) = resp_candidates.get(0) {
@@ -295,7 +295,7 @@ pub fn http_post_json_chatgpt(llm_params: &LLMParameters, json_payload: ChatGPTR
         Ok(resp) => {
             match resp.json::<serde_json::value::Value>(){
                 Ok( json ) => {
-                    info!("chatgpt model response:\n{:?}", json);
+                    debug!("chatgpt model response:\n{:?}", json);
                     if let Some(choices) = json.get("choices"){
                         if let Some(first_choice) = choices.get(0) {
                             if let Some(message) = first_choice.get("message") {
@@ -303,7 +303,21 @@ pub fn http_post_json_chatgpt(llm_params: &LLMParameters, json_payload: ChatGPTR
                                     return content.to_string();
                                 }
                             }
-                            // get object: "logprobs" , get attrib: "content" array of Object -> {"bytes", "logprob"}
+                            if let Some(logprobs) = first_choice.get("logprobs") {
+                                // get object: "logprobs" , get attrib: "content" array of Object -> {"bytes", "logprob"}
+                                if let Some(logprobs_content) = logprobs.get("content") {
+                                    match logprobs_content.as_array(){
+                                        None => {}
+                                        Some(logprobs_vec) => {
+                                            // let mut text_confidence = "";
+                                            // for log_prob_pair in logprobs_vec{
+                                            //     Extract from pair: {"bytes", "logprob"}
+                                            //     let linear_prob = round(exp(logprob) * 100, 2);
+                                            // }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     // get and print string:  "model"
@@ -419,7 +433,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
     let fetch_timeout: u64 = get_cfg_int!("model_api_timeout", app_config, 30) as u64;
 
     // set the model service connect timeout:
-    let connect_timeout: u64 = fetch_timeout as u64;
+    let connect_timeout: u64 = fetch_timeout;
 
     let max_llm_context_tokens: isize = get_cfg_int!("max_llm_context_tokens", app_config, 8192);
 

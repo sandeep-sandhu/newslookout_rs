@@ -131,15 +131,18 @@ plugins = [
  , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=5, "llm_service"="ollama", "overwrite"=false, "max_word_count"=850}
  , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}
  , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=8, "destination"="vectorindex", "file_format"="json"}
- , {"enabled"=true, "name"="mod_cmdline", "type"="data_processor", "priority"=9, "command_name"="C:\\temp\\testecho.cmd"}
  , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=10, "destination"="file", "file_format"="json"}
+ # here, the custom command line plugin needs to run last in the data processing pipeline as it expects to retrieve the document from a file.
+ , {"enabled"=true, "name"="mod_cmdline", "type"="data_processor", "priority"=99, "command_name"="C:\\temp\\testecho.cmd"}
 ]
 
 model_api_timeout=200
 save_intermediate=true
 model_temperature=0
-max_llm_context_tokens=8192
-max_gen_tokens=8192
+
+# for ollama based models, confirm these as each model will have different limits:
+max_llm_context_tokens=16384
+max_gen_tokens=16384
 
 ollama_svc_url="http://127.0.0.1:11434/api/generate"
 ollama_model_name="gemma2"
@@ -148,11 +151,15 @@ chatgpt_svc_url="https://api.openai.com/v1/chat/completions"
 chatgpt_model_name="gpt-4o-mini"
 
 gemini_svc_url="https://generativelanguage.googleapis.com/v1beta/models/"
-gemini_model_name="gemini-1.0-pro"
+gemini_model_name="gemini-1.5-flash"
 
-prompt_summary_part="Summarize the following text in less than 250 words. Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.\n\nTEXT:"
+prompt_summary_part="""Summarize the following text in less than 250 words.
+Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.
+TEXT:"""
 
-prompt_summary_exec="Summarize the following text in less than 500 words.  Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go.\n\nTEXT:"
+prompt_summary_exec="""Summarize the following text in less than 500 words.
+Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go.
+TEXT:"""
 
 system_context = "Act as an expert who is analysing the news."
 

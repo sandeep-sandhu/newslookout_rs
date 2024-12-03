@@ -159,6 +159,9 @@ macro_rules! get_cfg_bool {
 }
 
 
+// Reads the value of the parameter that is defined within a plugin's table in the toml config file
+// Input parameters are: plugin_name, config_parameter_name, config_object
+//
 #[macro_export]
 macro_rules! get_plugin_cfg {
     ($plugin_name:expr, $config_key:expr, $config_obj:expr) => {

@@ -1,10 +1,15 @@
 # Change Log
 
 
+### Release 0.4.6
+- Updated the crate documentation with additional details about the package
 
 ### Release 0.4.5
   - Added better logging to llm functions and modules using these (summarize)
   - Fixed compile time warnings throughout the project
+
+### Release 0.4.4
+  - Bug fixes and re-factoring.
 
 ### Release 0.4.3
   - Added new module for running arbitrary os commands with filename of retrieved document as the argument.

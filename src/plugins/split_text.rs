@@ -9,7 +9,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 use crate::document::Document;
 use crate::utils::{clean_text, get_text_from_element, split_by_word_count, to_local_datetime};
-use crate::cfg::{get_plugin_config, };
+use crate::get_plugin_cfg;
 
 pub const PLUGIN_NAME: &str = "split_text";
 const PUBLISHER_NAME: &str = "Split document text";
@@ -29,7 +29,7 @@ pub(crate) fn process_data(tx: Sender<Document>, rx: Receiver<Document>, app_con
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
     let mut min_word_limit_to_split: u64 = 600;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "min_word_limit_to_split"){
+    match get_plugin_cfg!(PLUGIN_NAME, "min_word_limit_to_split", &app_config) {
         Some(min_word_limit_to_split_str) => {
             match min_word_limit_to_split_str.parse::<u64>(){
                 Ok(configintvalue) => min_word_limit_to_split =configintvalue, Err(e)=>{}
@@ -109,16 +109,15 @@ pub fn check_and_split_text(doc_to_process: &mut Document, min_word_limit_to_spl
 
 #[cfg(test)]
 mod tests {
-    use postgres::types::ToSql;
-    use crate::document::new_document;
+    use super::*;
     use crate::plugins::split_text;
     use crate::plugins::split_text::check_and_split_text;
 
     #[test]
     fn test_check_and_split_text() {
-        let mut test_rbi_doc = new_document();
+        let mut test_rbi_doc = Document::default();
         test_rbi_doc.module = "nothing".to_string();
-        test_rbi_doc.module = crate::plugins::rbi::PLUGIN_NAME.to_string();
+        test_rbi_doc.module = crate::plugins::mod_en_in_rbi::PLUGIN_NAME.to_string();
         test_rbi_doc.text = String::from("v4n57yp 9m934u\n \nDear sir madam, \
         \n\n  Appendix 232\n blah more blah and some extraa text to go along\n\n Annexure 111\n\
         sample calculation\n\n \nLot of more words that should not be split at all page 2 and\

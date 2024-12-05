@@ -6,7 +6,7 @@ use chrono::NaiveDate;
 use log::{debug, error};
 use regex::Regex;
 use scraper::ElementRef;
-use crate::document::{Document, new_document};
+use crate::document::{Document};
 use crate::utils::{clean_text, get_text_from_element, to_local_datetime};
 
 
@@ -41,7 +41,7 @@ pub fn extract_doc_from_row(row_each: ElementRef, source_url: &str) -> Document{
     let pdf_link_selector = scraper::Selector::parse("a.matomo_download").unwrap();
     let description_snippet_selector = scraper::Selector::parse("div.notifications-description p").unwrap();
 
-    let mut this_new_doc = new_document();
+    let mut this_new_doc = Document::default();
 
     // init document with default "others" categories in classification field.
     this_new_doc.classification = HashMap::from( [

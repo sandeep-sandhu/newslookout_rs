@@ -21,7 +21,7 @@ use rusqlite;
 use crate::document;
 use crate::network;
 use crate::utils;
-use crate::plugins::{mod_en_in_business_standard, rbi, mod_offline_docs, mod_classify, split_text, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore, mod_cmdline};
+use crate::plugins::{mod_en_in_business_standard, mod_en_in_rbi, mod_offline_docs, mod_classify, split_text, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore, mod_cmdline};
 use crate::document::{Document};
 use crate::utils::{make_unique_filename, save_to_disk_as_json};
 
@@ -56,7 +56,7 @@ pub struct RetrieverPlugin {
     pub name: String,
     pub priority: isize,
     pub enabled: bool,
-    pub method: fn(Sender<document::Document>, config::Config)
+    pub method: fn(Sender<document::Document>, Arc<config::Config>)
 }
 
 
@@ -126,7 +126,7 @@ pub fn extract_plugin_params(plugin_map: Map<String, Value>) -> (String, PluginT
 /// * `app_config`: The application configuration
 ///
 /// returns: Vec<RetrieverPlugin, Global>
-pub fn load_retriever_plugins(app_config: &Config) -> Vec<RetrieverPlugin> {
+pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverPlugin> {
 
     let mut retriever_plugins: Vec<RetrieverPlugin> = Vec::new();
     let mut plugins_configured = Vec::new();
@@ -150,13 +150,13 @@ pub fn load_retriever_plugins(app_config: &Config) -> Vec<RetrieverPlugin> {
 
                 // check value of plugin to invoke the relevant module:
                 match plugin_name.as_str() {
-                    rbi::PLUGIN_NAME => {
+                    mod_en_in_rbi::PLUGIN_NAME => {
                         retriever_plugins.push(
                             RetrieverPlugin {
                                 name: plugin_name,
                                 priority: priority,
                                 enabled: plugin_enabled,
-                                method: rbi::run_worker_thread,
+                                method: mod_en_in_rbi::run_worker_thread,
                             }
                         );
                         continue;
@@ -202,7 +202,7 @@ pub fn load_retriever_plugins(app_config: &Config) -> Vec<RetrieverPlugin> {
 /// * `app_config`: The application configuration
 ///
 /// returns: BinaryHeap<DataProcPlugin, Global>
-pub fn load_dataproc_plugins(app_config: &Config) -> BinaryHeap<DataProcPlugin> {
+pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<DataProcPlugin> {
 
     let mut plugin_heap: BinaryHeap<DataProcPlugin> = BinaryHeap::new();
     // default value:
@@ -400,7 +400,7 @@ pub fn data_processing_pipeline(
 pub fn start_data_pipeline(
     retriever_plugins: Vec<RetrieverPlugin>,
     data_proc_plugins: BinaryHeap<DataProcPlugin>,
-    app_config: &Config
+    app_config: Arc<config::Config>
 ) -> Vec<Document> {
 
     // start the inter-thread message queues
@@ -424,7 +424,11 @@ pub fn start_data_pipeline(
     }
 
     // start the retriever plugin threads: they all send via transmit
-    let _retriever_thread_handles = start_retrieval_pipeline(retriever_plugins, retrieve_thread_tx, app_config);
+    let _retriever_thread_handles = start_retrieval_pipeline(
+        retriever_plugins,
+        retrieve_thread_tx,
+        app_config.clone()
+    );
 
     // get all processed documents from the output of the data processing pipeline and
     // write these to the database table
@@ -437,7 +441,8 @@ pub fn start_data_pipeline(
         if all_docs_processed.len() % 100 == 0 {
             let current_idx = all_docs_processed.len() - 1;
             let written_rows = utils::insert_urls_info_to_database(
-                app_config, &all_docs_processed[last_written..current_idx]
+                app_config.clone(),
+                &all_docs_processed[last_written..current_idx]
             );
             info!("Wrote {} retrieved urls into the 'completed_urls' table.", written_rows);
             if written_rows < (current_idx - last_written) {
@@ -455,7 +460,7 @@ pub fn start_data_pipeline(
     return all_docs_processed;
 }
 
-fn start_retrieval_pipeline(plugins: Vec<RetrieverPlugin>, tx: Sender<document::Document>, config: &Config) -> Vec<JoinHandle<()>>{
+fn start_retrieval_pipeline(plugins: Vec<RetrieverPlugin>, tx: Sender<document::Document>, config: Arc<config::Config>) -> Vec<JoinHandle<()>>{
 
     let mut task_run_handles: Vec<JoinHandle<()>> = Vec::new();
 

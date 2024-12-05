@@ -2,6 +2,7 @@
 // Purpose:
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use {
     regex::Regex,
 };
@@ -34,7 +35,7 @@ const STARTER_URLS: [(&str, &str); 1] = [
 /// * `app_config`: The application configuration object to be used to get various config parameters
 ///
 /// returns: ()
-pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
+pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<config::Config>) {
 
     info!("{}: Starting worker", PLUGIN_NAME);
 

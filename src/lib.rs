@@ -220,6 +220,7 @@
 
 use std::env;
 use std::io::Write;
+use std::sync::Arc;
 use ::config::Config;
 use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
@@ -234,7 +235,7 @@ use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPl
 
 pub mod plugins {
     pub mod mod_en_in_indiankanoon;
-    pub(crate) mod rbi;
+    pub(crate) mod mod_en_in_rbi;
     pub(crate) mod mod_en_in_business_standard;
     pub mod mod_offline_docs;
     pub mod mod_classify;
@@ -277,21 +278,26 @@ const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 /// newslookout::run_app(config);</tt>
 ///
 pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
+    // TODO: use Arc
+    let configref: Arc<config::Config> = Arc::new(config);
 
-    init_logging(&config);
-    init_pid_file(&config);
+    init_pid_file(configref.clone());
+    init_logging(configref.clone());
+
     log::info!("Starting the data pipeline, library v{}", VERSION);
 
-    let retriever_plugins = load_retriever_plugins(&config);
-    let data_proc_plugins = load_dataproc_plugins(&config);
+    let retriever_plugins = load_retriever_plugins(configref.clone());
+    let data_proc_plugins = load_dataproc_plugins(configref.clone());
 
-    let docs_retrieved = start_data_pipeline(retriever_plugins,
-                                                       data_proc_plugins,
-                                                       &config);
+    let docs_retrieved = start_data_pipeline(
+        retriever_plugins,
+        data_proc_plugins,
+        configref.clone()
+    );
 
     log::info!("Data pipeline completed processing {} documents.", docs_retrieved.len());
 
-    cleanup_pid_file(&config);
+    cleanup_pid_file(configref);
 
     return docs_retrieved;
 }
@@ -306,7 +312,7 @@ pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
 ///
 /// returns: ()
 ///
-pub fn init_logging(config: &Config){
+pub fn init_logging(config: Arc<config::Config>){
     // setup logging:
     match config.get_string("log_file"){
         Ok(mut logfile) =>{
@@ -379,7 +385,7 @@ pub fn init_logging(config: &Config){
     }
 }
 
-pub fn init_pid_file(config: &Config){
+pub fn init_pid_file(config: Arc<config::Config>){
     // setup PID file:
     match config.get_string("pid_file"){
         Ok(pidfile_name) =>{
@@ -421,7 +427,7 @@ pub fn init_pid_file(config: &Config){
 ///
 /// returns: ()
 ///
-pub fn cleanup_pid_file(config: &Config){
+pub fn cleanup_pid_file(config: Arc<config::Config>){
     match config.get_string("pid_file"){
         Ok(pidfile) =>{
             match std::fs::remove_file(&pidfile) {

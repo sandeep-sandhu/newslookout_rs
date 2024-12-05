@@ -56,34 +56,33 @@ pub struct Document {
 }
 
 /// Creates a new empty document object with default attributes
-pub fn new_document() -> Document {
-
-    let curr_timestamp = Utc::now().timestamp();
-
-    return Document{
-        module: "".to_string(),
-        plugin_name: "".to_string(),
-        section_name: "".to_string(),
-        url: "".to_string(),
-        pdf_url: "".to_string(),
-        html_content: "".to_string(),
-        title: "".to_string(),
-        unique_id: "".to_string(),
-        referrer_text: "".to_string(),
-        text: "".to_string(),
-        source_author: "".to_string(),
-        recipients: "".to_string(),
-        publish_date_ms: curr_timestamp,
-        publish_date: "1970-01-01".to_string(),
-        revision_dates: vec![],
-        links_inward: Vec::new(),
-        links_outwards: Vec::new(),
-        text_parts: Vec::new(),
-        classification: HashMap::new(),
-        filename: "".to_string(),
-        generated_content: HashMap::new(),
-        data_proc_flags: 0,
-    };
+impl Default for Document {
+    fn default() -> Document {
+        Document {
+            module: "".to_string(),
+            plugin_name: "".to_string(),
+            section_name: "".to_string(),
+            url: "".to_string(),
+            pdf_url: "".to_string(),
+            html_content: "".to_string(),
+            title: "".to_string(),
+            unique_id: "".to_string(),
+            referrer_text: "".to_string(),
+            text: "".to_string(),
+            source_author: "".to_string(),
+            recipients: "".to_string(),
+            publish_date_ms: Utc::now().timestamp(),
+            publish_date: "1970-01-01".to_string(),
+            revision_dates: Vec::new(),
+            links_inward: Vec::new(),
+            links_outwards: Vec::new(),
+            text_parts: Vec::new(),
+            classification: HashMap::new(),
+            filename: "".to_string(),
+            generated_content: HashMap::new(),
+            data_proc_flags: 0,
+        }
+    }
 }
 
 /// Flag to indicate whether sentiment classification is to be run on the contents of this document
@@ -119,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_data_structures() {
-        let mut data = new_document();
+        let mut data = Document::default();
         data.text_parts = vec![ HashMap::from( [
             ("id".to_string(), Value::String("1".to_string())),
             ("text".to_string(), Value::String("blank".to_string())),
@@ -140,5 +139,13 @@ mod tests {
         let example1 = 16+128;
 
         assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn test_defaults(){
+        let defdoc: Document = Document::default();
+        println!("{:#?}", defdoc);
+        assert_eq!(defdoc.publish_date, "1970-01-01");
+        assert_eq!(defdoc. text_parts.len(),0);
     }
 }

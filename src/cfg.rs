@@ -13,52 +13,52 @@ use std::env;
 /// * `param_key`: The parameter to be queried
 ///
 /// returns: Option<String>
-pub fn get_plugin_config(
-    app_config: &Config,
-    plugin_name: &str,
-    param_key: &str,
-) -> Option<String> {
-    match app_config.get_array("plugins") {
-        Result::Ok(plugins) => {
-            for plugin in plugins {
-                match plugin.into_table() {
-                    Ok(plugin_map) => {
-                        match plugin_map.get("name") {
-                            Some(name_val) => {
-                                if name_val.to_string().eq(plugin_name) {
-                                    // get the param for given key from this plugin_map:
-                                    match plugin_map.get(param_key) {
-                                        Some(param_val) => {
-                                            return Some(param_val.to_string());
-                                        }
-                                        None => {
-                                            error!("When retrieving value for key {}", param_key);
-                                            return None;
-                                        }
-                                    }
-                                }
-                            }
-                            None => {
-                                error!("When extracting name parameter of plugin.");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("When getting individual plugin config: {}", e);
-                        return None;
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            error!("When retrieving plugins config for all plugins: {}", e);
-            return None;
-        }
-    }
-    return None;
-}
+// pub fn get_plugin_config(
+//     app_config: &Config,
+//     plugin_name: &str,
+//     param_key: &str,
+// ) -> Option<String> {
+//     match app_config.get_array("plugins") {
+//         Result::Ok(plugins) => {
+//             for plugin in plugins {
+//                 match plugin.into_table() {
+//                     Ok(plugin_map) => {
+//                         match plugin_map.get("name") {
+//                             Some(name_val) => {
+//                                 if name_val.to_string().eq(plugin_name) {
+//                                     // get the param for given key from this plugin_map:
+//                                     match plugin_map.get(param_key) {
+//                                         Some(param_val) => {
+//                                             return Some(param_val.to_string());
+//                                         }
+//                                         None => {
+//                                             error!("When retrieving value for key {}", param_key);
+//                                             return None;
+//                                         }
+//                                     }
+//                                 }
+//                             }
+//                             None => {
+//                                 error!("When extracting name parameter of plugin.");
+//                             }
+//                         }
+//                     }
+//                     Err(e) => {
+//                         error!("When getting individual plugin config: {}", e);
+//                         return None;
+//                     }
+//                 }
+//             }
+//         }
+//         Err(e) => {
+//             error!("When retrieving plugins config for all plugins: {}", e);
+//             return None;
+//         }
+//     }
+//     return None;
+// }
 
-pub fn read_config(cfg_file: String) -> Config {
+pub fn read_config_from_file(cfg_file: String) -> Config {
     let mut cfg_builder = Config::builder();
     cfg_builder = cfg_builder.add_source(Environment::default().prefix("NEWSLOOKOUT_"));
     cfg_builder = cfg_builder.add_source(config::File::new(&cfg_file, FileFormat::Toml));
@@ -161,7 +161,7 @@ macro_rules! get_cfg_bool {
 
 // Reads the value of the parameter that is defined within a plugin's table in the toml config file
 // Input parameters are: plugin_name, config_parameter_name, config_object
-//
+// Example: get_plugin_cfg!("some_plugin_name", "some_param_name", config_obj)
 #[macro_export]
 macro_rules! get_plugin_cfg {
     ($plugin_name:expr, $config_key:expr, $config_obj:expr) => {
@@ -221,7 +221,7 @@ mod tests {
     use postgres::types::ToSql;
     use log::{error, info};
     use crate::cfg;
-    use crate::cfg::read_config;
+    use crate::cfg::read_config_from_file;
 
     #[test]
     fn test_cfg_macros() {

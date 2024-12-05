@@ -7,6 +7,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::ops::Add;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Sender, SendError};
 use std::thread::JoinHandle;
 use {
@@ -16,28 +17,30 @@ use config::Config;
 use chrono::{DateTime, Local, TimeDelta, Utc};
 use log::{debug, error, info};
 use reqwest::blocking::Client;
+use scraper::Node::Document;
 use crate::{document, network};
-use crate::document::Document;
+use crate::get_plugin_cfg;
 use crate::network::make_http_client;
-use crate::utils::{get_files_listing_from_dir, get_urls_from_database};
-use crate::cfg::{get_data_folder, get_plugin_config};
+use crate::utils::{extract_text_from_pdf, get_files_listing_from_dir, get_urls_from_database};
+use crate::cfg::{get_data_folder};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_offline_docs";
 const PUBLISHER_NAME: &str = "Read documents from disk";
 
-pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
+pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<config::Config>) {
 
     info!("{}: Starting worker", PLUGIN_NAME);
     // get parameter file_extension
     let mut file_extension = String::from("json");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "file_extension"){
+
+    match get_plugin_cfg!(PLUGIN_NAME, "file_extension", &app_config) {
         Some(file_extension_str) => {
             file_extension =file_extension_str;
         }, None => {}
     };
 
     let mut published_in_past_days:usize = 30;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "published_in_past_days"){
+    match get_plugin_cfg!(PLUGIN_NAME, "published_in_past_days", &app_config) {
         Some(published_in_past_days_str) => {
             match published_in_past_days_str.parse::<usize>(){
                 Result::Ok(configintvalue) => published_in_past_days =configintvalue, Err(e)=>{}
@@ -47,7 +50,7 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 
     // get parameter folder_name
     let mut data_folder_name = String::from("data");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "folder_name"){
+    match get_plugin_cfg!(PLUGIN_NAME, "folder_name", &app_config) {
         Some(param_str) => {
             data_folder_name =param_str;
             // read all docs from data_folder_name and prepare vector of Documents
@@ -104,7 +107,7 @@ fn get_and_send_docs_from_data_folder(filepaths_in_dir: Vec<PathBuf>, tx: Sender
     return new_docs_counter;
 }
 
-fn load_document_from_file(doc_file_path: PathBuf, filename: String, file_extension: &str) -> Option<Document>{
+fn load_document_from_file(doc_file_path: PathBuf, filename: String, file_extension: &str) -> Option<document::Document>{
 
     match fs::File::open(doc_file_path.clone()){
         Ok(open_file) => {
@@ -118,6 +121,16 @@ fn load_document_from_file(doc_file_path: PathBuf, filename: String, file_extens
                         }
                         Err(e) => error!("When trying to read JSON file {}: {}", filename, e),
                     }
+                },
+                "pdf" => {
+                    // read from pdf Documents in directory:
+                    let filename = doc_file_path.to_string_lossy().to_string();
+                    let txt_file_path = filename.replace(".pdf", ".txt");
+                    let mut new_doc = document::Document::default();
+                    new_doc.url = filename;
+                    new_doc.module="PDF".to_string();
+                    new_doc.text = extract_text_from_pdf(doc_file_path, PathBuf::from(txt_file_path));
+                    Some(new_doc);
                 },
                 _ => error!("Cannot process unknown file extension: {}", file_extension)
             }

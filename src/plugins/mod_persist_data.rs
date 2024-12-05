@@ -6,7 +6,7 @@ use config::Config;
 use log::{debug, error, info};
 use crate::document;
 use crate::utils::{make_unique_filename};
-use crate::cfg::{get_plugin_config, };
+use crate::get_plugin_cfg;
 
 pub const PLUGIN_NAME: &str = "mod_persist_data";
 
@@ -25,14 +25,14 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
 
     // read parameter: "file_format"
     let mut file_format: String = String::from("json");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "file_format"){
+    match get_plugin_cfg!(PLUGIN_NAME, "file_format", &app_config) {
         Some(param_val_str) => file_format = param_val_str,
         None => error!("Could not get parameter 'file_format', using default value of: {}", file_format)
     };
 
     // read parameter: "destination"="file"/ "database"
     let mut destination: String = String::from("file");
-    match get_plugin_config(&app_config, PLUGIN_NAME, "destination"){
+    match get_plugin_cfg!(PLUGIN_NAME, "destination", &app_config) {
         Some(param_val_str) => destination = param_val_str,
         None => error!("Could not get parameter 'destination', using default value of: {}", destination)
     };

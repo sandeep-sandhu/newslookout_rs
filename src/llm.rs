@@ -16,7 +16,7 @@ use crate::{cfg, document, llm};
 use crate::document::Document;
 use crate::network::build_llm_api_client;
 use crate::plugins::mod_summarize::PLUGIN_NAME;
-use crate::cfg::{get_plugin_config, get_data_folder};
+use crate::cfg::{get_data_folder};
 use crate::utils::{make_unique_filename, save_to_disk_as_json, split_by_word_count};
 
 pub const MIN_ACCEPTABLE_SUMMARY_CHARS: usize = 25;
@@ -410,7 +410,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
 
     // get overwrite config parameter
     let mut overwrite: bool = false;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "overwrite"){
+    match get_plugin_cfg!(PLUGIN_NAME, "overwrite", &app_config) {
         Some(param_val_str) => {
             match param_val_str.trim().parse(){
                 Ok(param_val) => overwrite = param_val,
@@ -420,7 +420,7 @@ pub fn prepare_llm_parameters(app_config: &config::Config, task_prompt: String, 
     };
 
     let mut max_word_count: usize = 850;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "max_word_count"){
+    match get_plugin_cfg!(PLUGIN_NAME, "max_word_count", &app_config) {
         Some(param_val_str) => {
             match param_val_str.trim().parse(){
                 Ok(param_val) => max_word_count = param_val,

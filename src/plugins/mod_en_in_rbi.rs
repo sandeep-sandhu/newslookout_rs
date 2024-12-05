@@ -9,7 +9,7 @@ use std::io::{BufWriter, Bytes, Read, Write};
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::borrow::BorrowMut;
-
+use std::sync::Arc;
 use config::{Config};
 use chrono::{NaiveDate, Utc};
 use log::{debug, error, info};
@@ -24,13 +24,14 @@ use {
 };
 
 use crate::{document, network, utils};
-use crate::document::{Document, new_document};
-use crate::cfg::{get_plugin_config, get_data_folder, get_database_filename};
+use crate::document::{Document};
+use crate::get_plugin_cfg;
+use crate::cfg::{get_data_folder, get_database_filename};
 use crate::html_extract::{extract_text_from_html, extract_doc_from_row};
 use crate::network::{read_network_parameters, make_http_client, NetworkParameters};
 use crate::utils::{clean_text, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, retrieve_pdf_content, extract_text_from_pdf, load_pdf_content, check_and_fix_url};
 
-pub(crate) const PLUGIN_NAME: &str = "rbi";
+pub(crate) const PLUGIN_NAME: &str = "mod_en_in_rbi";
 const PUBLISHER_NAME: &str = "Reserve Bank of India";
 const BASE_URL: &str = "https://website.rbi.org.in/";
 
@@ -44,7 +45,7 @@ const BASE_URL: &str = "https://website.rbi.org.in/";
 /// * `app_config`: The application configuration object to be used to get various config parameters
 ///
 /// returns: ()
-pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Config) {
+pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<config::Config>) {
 
     info!("{}: Reading plugin specific configuration.", PLUGIN_NAME);
     let mut netw_params = read_network_parameters(&app_config);
@@ -54,14 +55,15 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Conf
 
     let mut maxitemsinpage = 1;
     let mut maxpages = 1;
-    match get_plugin_config(&app_config, PLUGIN_NAME, "maxpages"){
+
+    match get_plugin_cfg!(PLUGIN_NAME, "maxpages", &app_config){
         Some(maxpages_str) => {
             match maxpages_str.parse::<u64>(){
                 Result::Ok(configintvalue) => maxpages =configintvalue, Err(e)=>{}
             }
         }, None => {}
     };
-    match get_plugin_config(&app_config, PLUGIN_NAME, "items_per_page"){
+    match get_plugin_cfg!(PLUGIN_NAME, "items_per_page", &app_config){
         Some(maxitemsinpage_str) => {
             match maxitemsinpage_str.parse::<u64>(){
                 Result::Ok(configintvalue) => maxitemsinpage =configintvalue, Err(e)=>{}
@@ -345,8 +347,8 @@ fn clean_recepients(recepients: &str) -> String{
 
 #[cfg(test)]
 mod tests {
-    use crate::plugins::rbi;
-    use crate::plugins::rbi::clean_recepients;
+    use crate::plugins::mod_en_in_rbi;
+    use crate::plugins::mod_en_in_rbi::clean_recepients;
 
     #[test]
     fn test_clean_recepients() {

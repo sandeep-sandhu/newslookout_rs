@@ -16,6 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::sync::Arc;
 use nom::AsBytes;
 use log::{debug, error, info, LevelFilter, warn};
 use log4rs::append::file::FileAppender;
@@ -244,7 +245,7 @@ pub fn get_urls_from_database(sqlite_filename: &str, module_name: &str) -> colle
 /// * `processed_docinfos`: The DocInfo struct that contains the url and corresponding details
 ///
 /// returns: u64
-pub fn insert_urls_info_to_database(config: &config::Config, processed_docinfos: &[Document]) -> usize {
+pub fn insert_urls_info_to_database(config: Arc<config::Config>, processed_docinfos: &[Document]) -> usize {
     // get the database filename form config file, or else create one in present directory "newslookout_urls.db":
     let mut database_fullpath = String::from("newslookout_urls.db");
     match config.get_string("completed_urls_datafile") {
@@ -618,6 +619,7 @@ pub fn check_and_fix_url(url_to_check: &str, base_url: &str) -> Option<String> {
 mod tests {
     use regex::Regex;
     use crate::{document, utils};
+    use crate::document::Document;
     use crate::utils::{append_with_last_element, check_and_fix_url, get_last_n_words, make_unique_filename, split_by_regex};
 
     #[test]
@@ -717,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_make_unique_filename(){
-        let mut example1 = document::new_document();
+        let mut example1 = Document::default();
         example1.filename = "master-direction-on-currency-distribution-amp-exchange-scheme-cdes-for-bank-branches-including-currency-chests-based-on-performance-in-rendering-customer-service-to-members-of-public-12055".to_string();
         example1.url = "https://website.rbi.org.in/web/rbi/-/notifications/master-direction-on-currency-distribution-amp-exchange-scheme-cdes-for-bank-branches-including-currency-chests-based-on-performance-in-rendering-customer-service-to-members-of-public-12055".to_string();
         example1.module = "mod_dummy".to_string();

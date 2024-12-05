@@ -13,7 +13,7 @@ use crate::{document, get_cfg, llm};
 use crate::llm::{prepare_llm_parameters, LLMParameters, MAX_TOKENS, MIN_ACCEPTABLE_SUMMARY_CHARS, TOKENS_PER_WORD};
 use crate::network::build_llm_api_client;
 use crate::utils::{word_count};
-use crate::cfg::{get_plugin_config};
+use crate::get_plugin_cfg;
 
 pub const PLUGIN_NAME: &str = "mod_summarize";
 pub const PUBLISHER_NAME: &str = "Text Summarization";

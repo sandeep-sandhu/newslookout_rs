@@ -1,5 +1,11 @@
 # Change Log
 
+### Release 0.4.8
+- Enabled overwriting of text parts by new split, if enabled in the config file
+- Fixed document creation from PDF file (mod_offline)
+
+### Release 0.4.7
+- Fixed minor bugs
 
 ### Release 0.4.6
 - Updated the crate documentation with additional details about the package

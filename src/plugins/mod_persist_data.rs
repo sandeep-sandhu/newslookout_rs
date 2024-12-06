@@ -30,7 +30,7 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
         None => error!("Could not get parameter 'file_format', using default value of: {}", file_format)
     };
 
-    // read parameter: "destination"="file"/ "database"
+    // read parameter: "destination"="file"/ "database" / "blob"
     let mut destination: String = String::from("file");
     match get_plugin_cfg!(PLUGIN_NAME, "destination", &app_config) {
         Some(param_val_str) => destination = param_val_str,

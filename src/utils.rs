@@ -116,6 +116,7 @@ pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) ->
                 .replace(".html", "")
                 .replace(".htm", "")
                 .replace(".php", "")
+                .replace(".pdf", "")
                 .replace(".aspx", "")
                 .replace(".asp", "")
                 .replace(".jsp", "")
@@ -128,14 +129,45 @@ pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) ->
                 .replace("%E2%82%B9", "")
                 .replace("+", "_")
                 .replace("'", "")
-                .replace("–", "_")
+                .replace(" ", "_")
+                .replace("__", "_")
+                .replace("__", "_")
                 .replace("__", "_");
             url_resname = url_resname.chars().rev().take(max_characters).collect();
             url_resname = url_resname.chars().rev().collect();
             filename_prefix.push_str(url_resname.as_str());
         }
         None => {
-            info!("Could not get unique resource string from url: {}", doc_struct.url);
+            match doc_struct.url.rfind('\\') {
+                Some(slash_pos_in_url) =>{
+                    let mut url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
+                        .replace(".html", "")
+                        .replace(".htm", "")
+                        .replace(".php", "")
+                        .replace(".pdf", "")
+                        .replace(".aspx", "")
+                        .replace(".asp", "")
+                        .replace(".jsp", "")
+                        .replace("/", "")
+                        .replace("\\", "")
+                        .replace("?", "_")
+                        .replace("*", "")
+                        .replace(":", "")
+                        .replace("%20", "_")
+                        .replace("%E2%82%B9", "")
+                        .replace("+", "_")
+                        .replace("'", "")
+                        .replace("–", "_")
+                        .replace(" ", "_")
+                        .replace("__", "_")
+                        .replace("__", "_")
+                        .replace("__", "_");
+                    url_resname = url_resname.chars().rev().take(max_characters).collect();
+                    url_resname = url_resname.chars().rev().collect();
+                    filename_prefix.push_str(url_resname.as_str());
+                },
+                None => {info!("Could not get unique resource string from url: {}", doc_struct.url);}
+            }
         }
     }
     return format!("{}_{}.{}", filename_prefix, unique_string.to_string(), extension);
@@ -173,10 +205,12 @@ pub fn to_local_datetime(date: NaiveDate) -> DateTime<Local> {
 }
 
 
-
+// Get files listing from data folder
+// Filter list by file extension
 pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) -> Vec<PathBuf> {
+
     let mut all_file_paths: Vec<PathBuf> = Vec::new();
-    // get json file listing from data folder
+
     match fs::read_dir(data_folder_name) {
         Err(e) => error!("When getting list of all {} files in data folder {}, error:{}",
             file_extension, data_folder_name, e),
@@ -185,7 +219,7 @@ pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) 
                 .filter_map(|res| res.ok())
                 // Map the directory entries to paths
                 .map(|dir_entry| dir_entry.path())
-                // Filter out all paths with extensions other than `json`
+                // Filter out all paths with extensions other than file_extension
                 .filter_map(|path| {
                     if path.extension().map_or(false, |ext| ext == file_extension) {
                         Some(path)
@@ -196,7 +230,8 @@ pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) 
                 .collect::<Vec<_>>();
         }
     }
-    return all_file_paths;
+
+    all_file_paths
 }
 
 /// Get already retrieved URLs from the database for the given plugin/module
@@ -364,18 +399,23 @@ pub fn extract_text_from_pdf(pdf_file_path: PathBuf, txt_file_path: PathBuf) -> 
     let mut output = pdf_extract::PlainTextOutput::new(
         &mut output_file as &mut dyn std::io::Write);
     // load the pdf file
-    let doc = pdf_extract::Document::load(pdf_file_path).unwrap();
-    debug!("Converting pdf to text file: {:?}", txt_file_path);
-    // extract the text:
-    pdf_extract::output_doc(&doc, output.borrow_mut())
-        .expect("Could not convert to text file");
-    let plaintext = fs::read_to_string(&txt_file_path)
-        .expect("Could not read text from pdf.");
-    match fs::remove_file(txt_file_path){
-        Ok(_) => {}
-        Err(e) => {error!("When deleting txt file extract from pdf: {}", e)}
+    match pdf_extract::Document::load(pdf_file_path){
+        Ok(doc) => {
+            debug!("Converting pdf to text file: {:?}", txt_file_path);
+            // extract the text:
+            pdf_extract::output_doc(&doc, output.borrow_mut())
+                .expect("Could not convert to text file");
+            let plaintext = fs::read_to_string(&txt_file_path)
+                .expect("Could not read text from pdf.");
+            match fs::remove_file(txt_file_path){
+                Ok(_) => {}
+                Err(e) => {error!("When deleting txt file extract from pdf: {}", e)}
+            }
+            return plaintext;
+        }
+        Err(e) => error!("When opening pdf file: {}", e)
     }
-    return plaintext;
+    String::from("")
 }
 
 pub fn retrieve_pdf_content(pdf_url: &str, client: &reqwest::blocking::Client) -> (bytes::Bytes, String) {

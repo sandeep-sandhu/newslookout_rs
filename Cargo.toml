@@ -1,6 +1,6 @@
 [package]
 name = "newslookout"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2021"
 authors = ["Sandeep Singh Sandhu"]
 description = "A web scraping platform built for news scanning, using LLMs for text processing, powered by Rust"
@@ -42,9 +42,9 @@ rusqlite = "0.32.1"
 sqlx = { version = "0.8.2", features = [ "runtime-tokio-rustls", "postgres", "macros", "runtime-tokio-native-tls", "sqlite" ] }
 postgres = "0.19.9"
 postgres-native-tls = "0.5.0"
+rusty-tesseract = "1.1.10"
 #anyhow = "1.0.93"
 #clap = { version = "4.5.21", features = ["derive"] }
-#rusty-tesseract = "1.1.10"
 #tch = { version = "0.17.0", features = ["download-libtorch"] }
 #rust-bert = "0.23.0"
 #rust_tokenizers = "8.1.1"

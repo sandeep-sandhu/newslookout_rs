@@ -56,7 +56,7 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
     let mut maxitemsinpage = 1;
     let mut maxpages = 1;
 
-    match get_plugin_cfg!(PLUGIN_NAME, "maxpages", &app_config){
+    match get_plugin_cfg!(PLUGIN_NAME, "max_pages", &app_config){
         Some(maxpages_str) => {
             match maxpages_str.parse::<u64>(){
                 Result::Ok(configintvalue) => maxpages =configintvalue, Err(e)=>{}

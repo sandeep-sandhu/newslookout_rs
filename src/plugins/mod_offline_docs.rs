@@ -53,7 +53,8 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
     match get_plugin_cfg!(PLUGIN_NAME, "folder_name", &app_config) {
         Some(param_str) => {
             data_folder_name =param_str;
-            // read all docs from data_folder_name and prepare vector of Documents
+            // read all docs from data_folder_name:
+            info!("{}: Getting list of all '{}' files in path: {}", PLUGIN_NAME, file_extension, data_folder_name);
             let all_files_in_dir: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name.as_str(), file_extension.as_str());
 
             let doc_count = get_and_send_docs_from_data_folder(all_files_in_dir, tx, file_extension.as_str(), published_in_past_days);
@@ -84,9 +85,6 @@ fn get_and_send_docs_from_data_folder(filepaths_in_dir: Vec<PathBuf>, tx: Sender
             doc_file_path, filename.clone(), file_extension
         ) {
 
-            // change filename to present filename
-            doc_read_from_file.filename = filename.clone();
-
             // for each document extracted, run this data processing function:
             custom_data_processing(&mut doc_read_from_file);
 
@@ -115,22 +113,29 @@ fn load_document_from_file(doc_file_path: PathBuf, filename: String, file_extens
             match file_extension{
                 "json" => {
                     // de-serialize string to Document:
-                    match serde_json::from_reader(open_file) {
+                    match serde_json::from_reader::<std::fs::File, document::Document>(open_file) {
                         Result::Ok(mut doc_loaded_from_file) => {
+                            // change filename to present filename
+                            doc_loaded_from_file.filename = filename.clone();
                             return Some(doc_loaded_from_file);
                         }
-                        Err(e) => error!("When trying to read JSON file {}: {}", filename, e),
+                        Err(e) => error!("{}: When trying to read JSON file {}: {}", PLUGIN_NAME, filename, e),
                     }
                 },
                 "pdf" => {
                     // read from pdf Documents in directory:
                     let filename = doc_file_path.to_string_lossy().to_string();
                     let txt_file_path = filename.replace(".pdf", ".txt");
+
                     let mut new_doc = document::Document::default();
-                    new_doc.url = filename;
+                    new_doc.url = filename.clone();
                     new_doc.module="PDF".to_string();
+                    new_doc.title = filename.replace(".pdf", "");
+                    // change filename to present filename
+                    new_doc.filename = txt_file_path.replace(".txt", ".json");
                     new_doc.text = extract_text_from_pdf(doc_file_path, PathBuf::from(txt_file_path));
-                    Some(new_doc);
+
+                    return Some(new_doc);
                 },
                 _ => error!("Cannot process unknown file extension: {}", file_extension)
             }
@@ -176,11 +181,8 @@ fn check_pubdate_within_days(pubdate_ms: i64, published_within_days: i64) -> boo
 }
 
 fn custom_data_processing(mydoc: &mut document::Document){
-
     info!("{}: processing url document with title - '{}'", PLUGIN_NAME, mydoc.title);
-
     // implement any custom data processing here
-
 }
 
 #[cfg(test)]

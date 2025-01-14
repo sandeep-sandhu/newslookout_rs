@@ -62,7 +62,7 @@ pub fn read_network_parameters(app_config: &config::Config) -> NetworkParameters
             net_params.proxy_server = Some(proxy_server_url);
         },
         Err(e) => {
-            info!("Could not identify proxy server url from config, not using proxy, error was: {:?}", e)
+            info!("Could not identify proxy server url from config, not using proxy, message: {:?}", e)
         }
     }
 
@@ -86,6 +86,9 @@ pub fn make_http_client(netw_params: &NetworkParameters) -> reqwest::blocking::C
     // add do not track:
     headers.insert(reqwest::header::DNT, HeaderValue::from(1));
     headers.insert(reqwest::header::CONNECTION, HeaderValue::from_static("keep-alive"));
+    headers.insert(reqwest::header::ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"));
+    headers.insert(reqwest::header::ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate, br, zstd"));
+    headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml,application/json"));
 
     let client_bld: reqwest::blocking::ClientBuilder= reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(netw_params.fetch_timeout as u64))
@@ -107,7 +110,7 @@ pub fn make_http_client(netw_params: &NetworkParameters) -> reqwest::blocking::C
                     return client;
                 }
                 Err(e) => {
-                    error!("Unable to use proxy, Error when setting the proxy server: {}", e);
+                    info!("Unable to use proxy; when setting the proxy server, message was: {}", e);
                 }
             }
         }

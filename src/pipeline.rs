@@ -5,13 +5,13 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, mpsc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 
 use config::{Config, Map, Value};
 use chrono::Utc;
@@ -32,12 +32,38 @@ pub enum PluginType{
     DataProcessor
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct DataProcPlugin {
+    pub name: String,
     pub priority: isize,
     pub enabled: bool,
-    pub method: fn(Sender<document::Document>, Receiver<Document>, &config::Config)
+    pub api_mutexes: HashMap<String, Arc<Mutex<isize>>>,
+    pub method: fn(Sender<document::Document>, Receiver<Document>, &config::Config, &mut HashMap<String, Arc<Mutex<isize>>>)
 }
+
+impl Clone for DataProcPlugin {
+    fn clone(&self) -> DataProcPlugin {
+        let mut other_mutex: HashMap<String, Arc<Mutex<isize>>> = HashMap::new();
+        // clone mutex by - Arc::clone(&old_arc_mutex);
+        other_mutex.extend(self.api_mutexes.iter().map(|(k,v)| (k.clone(), Arc::clone(v) )));
+        return DataProcPlugin {
+            name: self.name.clone(),
+            priority: self.priority,
+            enabled: self.enabled,
+            api_mutexes: other_mutex,
+            method: self.method,
+        };
+    }
+}
+
+
+impl PartialEq for DataProcPlugin {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other. priority
+    }
+}
+
+impl Eq for DataProcPlugin {}
+
 impl Ord for DataProcPlugin {
     fn cmp(&self, other: &Self) -> Ordering {
         other.priority.cmp(&self.priority)
@@ -195,6 +221,15 @@ pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverP
     return retriever_plugins;
 }
 
+pub fn create_api_mutexes() -> HashMap<String, Arc<Mutex<isize>>> {
+    let mut all_api_mutexes: HashMap<String, Arc<Mutex<isize>>> = HashMap::new();
+    all_api_mutexes.insert(String::from("ollama"), Arc::new(Mutex::new(0)));
+    all_api_mutexes.insert(String::from("chatgpt"), Arc::new(Mutex::new(0)));
+    all_api_mutexes.insert(String::from("gemini"), Arc::new(Mutex::new(0)));
+    all_api_mutexes.insert(String::from("google_genai"), Arc::new(Mutex::new(0)));
+    return all_api_mutexes;
+}
+
 /// Loads the configuration for each data processing plugin
 ///
 /// # Arguments
@@ -202,11 +237,9 @@ pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverP
 /// * `app_config`: The application configuration
 ///
 /// returns: BinaryHeap<DataProcPlugin, Global>
-pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<DataProcPlugin> {
+pub fn load_dataproc_plugins(app_config: Arc<config::Config>, all_api_mutexes: HashMap<String, Arc<Mutex<isize>>>) -> BinaryHeap<DataProcPlugin> {
 
     let mut plugin_heap: BinaryHeap<DataProcPlugin> = BinaryHeap::new();
-    // default value:
-    let matched_data_proc_fn: fn(Sender<Document>, Receiver<Document>, &Config) = split_text::process_data;
 
     info!("Data processing pipeline: Reading the configuration and starting the plugins.");
     let mut plugins_configured = Vec::new();
@@ -227,8 +260,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the data processing plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "split_text".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: split_text::process_data,
                                 }
                             );
@@ -237,8 +272,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_classify".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: mod_classify::process_data,
                                 }
                             );
@@ -247,8 +284,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_dedupe".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: mod_dedupe::process_data,
                                 }
                             );
@@ -257,8 +296,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_summarize".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: mod_summarize::process_data,
                                 }
                             );
@@ -267,8 +308,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_vectorstore".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: mod_vectorstore::process_data,
                                 }
                             );
@@ -277,8 +320,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_persist_data".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method:  mod_persist_data::process_data,
                                 }
                             );
@@ -287,8 +332,10 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_solrsubmit".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: mod_solrsubmit::process_data,
                                 }
                             );
@@ -297,15 +344,17 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>) -> BinaryHeap<Data
                             debug!("Loading the plugin: {}",plugin_name);
                             plugin_heap.push(
                                 DataProcPlugin {
+                                    name: "mod_cmdline".to_string(),
                                     priority: priority,
                                     enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
                                     method: mod_cmdline::process_data,
                                 }
                             );
                         },
                         // add any new plugins here:
                         _ => {
-                            info!("Unable to load unknown data processing plugin: {}", plugin_name);
+                            debug!("Unable to load unknown data processing plugin: {}", plugin_name);
                         }
                     }
                 }
@@ -354,19 +403,20 @@ pub fn data_processing_pipeline(
     let mut dataproc_thread_run_handles: Vec<JoinHandle<()>> = Vec::new();
     let mut previous_rx = dataproc_docs_input_rx;
 
-    while let Some( DataProcPlugin{ priority, enabled, method }) = plugin_heap.pop() {
-        if enabled == true {
+    while let Some(mut data_plugin) = plugin_heap.pop() {
+        if data_plugin.enabled == true {
             // for each item i in plugin_heap:
-            info!("Starting data processing thread with priority #{}", priority);
+            info!("Starting data processing thread {} with priority #{}", data_plugin.name, data_plugin.priority);
             // create a channel with txi, rxi
             let (txi, rxi) = mpsc::channel();
             // start a new thread with tx= txi and rx=previous_rx, and clone of config:
             let config_clone = config.clone();
-            let handle = thread::spawn(move || method(txi, previous_rx, &config_clone));
+            let proc_function = data_plugin.method;
+            let handle = thread::spawn(move || proc_function(txi, previous_rx, &config_clone, &mut data_plugin.api_mutexes));
             dataproc_thread_run_handles.push(handle);
             previous_rx = rxi;
         } else{
-            info!("Ignoring disabled data processing thread with priority #{}", priority);
+            info!("Ignoring disabled data processing thread with priority #{}", data_plugin.priority);
         }
     }
 
@@ -437,8 +487,8 @@ pub fn start_data_pipeline(
 
     for processed_docinfo in processed_data_rx {
         all_docs_processed.push(processed_docinfo);
-        // write to database after every 100 urls:
-        if all_docs_processed.len() % 100 == 0 {
+        // write to database after every 20 urls:
+        if all_docs_processed.len() % 20 == 0 {
             let current_idx = all_docs_processed.len() - 1;
             let written_rows = utils::insert_urls_info_to_database(
                 app_config.clone(),
@@ -497,29 +547,23 @@ mod tests {
     use crate::pipeline::{DataProcPlugin};
 
     #[test]
-    fn test_1() {
-        // TODO: implement this
-        assert_eq!(1, 1);
-    }
-
-    #[test]
     fn test_priority_queue(){
         let mut plugin_heap: BinaryHeap<DataProcPlugin> = BinaryHeap::new();
-        let plugin1 = DataProcPlugin{priority: 10, enabled: true, method: split_text::process_data};
-        let plugin2 = DataProcPlugin{priority: -20, enabled: true, method: split_text::process_data};
-        let plugin3 = DataProcPlugin{priority: 2, enabled: true, method: split_text::process_data};
+        let plugin1 = DataProcPlugin{ name: "plugin1".to_string(), priority: 10, enabled: true, api_mutexes: Default::default(), method: split_text::process_data};
+        let plugin2 = DataProcPlugin{ name: "plugin2".to_string(), priority: -20, enabled: true, api_mutexes: Default::default(), method: split_text::process_data};
+        let plugin3 = DataProcPlugin{ name: "plugin3".to_string(), priority: 2, enabled: true, api_mutexes: Default::default(), method: split_text::process_data};
         plugin_heap.push(plugin1);
         plugin_heap.push(plugin2);
         plugin_heap.push(plugin3);
-        if let Some( DataProcPlugin{ priority, enabled, method }) = plugin_heap.pop() {
+        if let Some( DataProcPlugin{ priority, enabled, method, api_mutexes, name }) = plugin_heap.pop() {
             println!("1st item, got priority = {}", priority);
             assert_eq!(priority, -20, "Invalid min heap/priority queue processing");
         }
-        if let Some( DataProcPlugin{ priority, enabled, method }) = plugin_heap.pop() {
+        if let Some( DataProcPlugin{ priority, enabled, method, api_mutexes, name }) = plugin_heap.pop() {
             println!("2nd item, got priority = {}", priority);
             assert_eq!(priority, 2, "Invalid min heap/priority queue processing");
         }
-        if let Some( DataProcPlugin{ priority, enabled, method }) = plugin_heap.pop() {
+        if let Some( DataProcPlugin{ priority, enabled, method, api_mutexes, name }) = plugin_heap.pop() {
             println!("3rd item, got priority = {}", priority);
             assert_eq!(priority, 10, "Invalid min heap/priority queue processing");
         }

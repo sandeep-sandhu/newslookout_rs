@@ -3,6 +3,7 @@
 use config::{Config, Environment, FileFormat};
 use log::error;
 use std::env;
+use std::sync::{Arc, Mutex};
 
 /// Retrieve the queried parameter from this plugin's configuration
 ///
@@ -62,6 +63,10 @@ pub fn read_config_from_file(cfg_file: String) -> Config {
     let mut cfg_builder = Config::builder();
     cfg_builder = cfg_builder.add_source(Environment::default().prefix("NEWSLOOKOUT_"));
     cfg_builder = cfg_builder.add_source(config::File::new(&cfg_file, FileFormat::Toml));
+    // add mutuxes
+    cfg_builder = cfg_builder.set_default("ollama_lastaccess", 0).unwrap();
+    cfg_builder = cfg_builder.set_default("chatgpt_lastaccess", 0).unwrap();
+    cfg_builder = cfg_builder.set_default("google_genai_lastaccess", 0).unwrap();
     // Add a default configuration file
     match cfg_builder.build() {
         Ok(config) => {

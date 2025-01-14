@@ -1,5 +1,11 @@
 # Change Log
 
+### Release 0.4.9
+- Implemented mutexes to coordinate LLM service API usage
+- Enhanced data structures used for data processing plugins
+- Implemented Google's new Generative AI API service to support Gemini 2.0 Flash model
+- Improved error handling of LLM API service requests and error logging
+
 ### Release 0.4.8
 - Enabled overwriting of text parts by new split, if enabled in the config file
 - Fixed document creation from PDF file (mod_offline)

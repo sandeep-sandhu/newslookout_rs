@@ -2,8 +2,9 @@
 // purpose: add retrieved document to vectorstore
 // chunk text, use sentence tokenizer, save to vectorstore.
 
-
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use config::Config;
 use log::{debug, error, info};
 use crate::document::Document;
@@ -11,7 +12,7 @@ use crate::document::Document;
 
 pub const PLUGIN_NAME: &str = "mod_vectorstore";
 
-pub fn process_data(tx: Sender<Document>, rx: Receiver<Document>, config: &Config){
+pub fn process_data(tx: Sender<Document>, rx: Receiver<Document>, config: &Config, api_mutexes: &mut HashMap<String, Arc<Mutex<isize>>>){
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
 

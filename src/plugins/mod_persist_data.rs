@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use config::Config;
 use log::{debug, error, info};
 use crate::document;
@@ -11,7 +13,7 @@ use crate::get_plugin_cfg;
 pub const PLUGIN_NAME: &str = "mod_persist_data";
 
 
-pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config){
+pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config, api_mutexes: &mut HashMap<String, Arc<Mutex<isize>>>){
 
     info!("{}: Getting configuration specific to the module.", PLUGIN_NAME);
     let mut counter: usize = 0;

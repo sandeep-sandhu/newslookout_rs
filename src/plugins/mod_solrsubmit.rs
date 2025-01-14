@@ -1,6 +1,8 @@
 // file: mod_solrsubmit.rs
 
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use config::Config;
 use log::{error, info};
 use crate::{document, network};
@@ -20,7 +22,7 @@ const PUBLISHER_NAME: &str = "Index via SOLR Service";
 ///
 /// returns: ()
 ///
-pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, config: &Config){
+pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, config: &Config, api_mutexes: &mut HashMap<String, Arc<Mutex<isize>>>){
 
     info!("{}: Getting configuration for {}", PLUGIN_NAME, PUBLISHER_NAME);
 

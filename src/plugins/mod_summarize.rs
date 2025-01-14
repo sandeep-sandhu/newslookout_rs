@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use config::Config;
 use log::{debug, error, info};
 use reqwest::blocking::Client;
@@ -10,7 +11,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderName};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::{document, get_cfg, llm};
-use crate::llm::{prepare_llm_parameters, LLMParameters, MAX_TOKENS, MIN_ACCEPTABLE_SUMMARY_CHARS, TOKENS_PER_WORD};
+use crate::llm::{invoke_llm_func_with_lock, prepare_llm_parameters, LLMParameters, MAX_TOKENS, MIN_ACCEPTABLE_SUMMARY_CHARS, TOKENS_PER_WORD};
 use crate::network::build_llm_api_client;
 use crate::utils::{word_count};
 use crate::get_plugin_cfg;
@@ -30,7 +31,7 @@ pub const PUBLISHER_NAME: &str = "Text Summarization";
 ///
 /// returns: ()
 ///
-pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config){
+pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config, api_mutexes: &mut HashMap<String, Arc<Mutex<isize>>>){
 
     info!("{}: Getting configuration specific to the module.", PLUGIN_NAME);
     let mut doc_counter: u32 = 0;
@@ -41,10 +42,12 @@ pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Docum
 
     let mut llm_params = prepare_llm_parameters(app_config, prompt_summary_part.clone(), PLUGIN_NAME);
 
+    let mut option_mutex = api_mutexes.get(llm_params.llm_service.as_str());
+
     // process each document received and return back to next handler:
     for mut doc in rx {
 
-        update_doc(&mut llm_params, &mut doc, prompt_summary_part.as_str(), prompt_summary_exec.as_str());
+        update_doc(&mut llm_params, &mut doc, prompt_summary_part.as_str(), prompt_summary_exec.as_str(), option_mutex);
 
         //for each document received in channel queue, send it to next queue:
         match tx.send(doc) {
@@ -54,7 +57,6 @@ pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Docum
     }
     info!("{}: Completed processing {} documents.", PLUGIN_NAME, doc_counter);
 }
-
 
 /// Generate the summary of this document's text.
 /// If the document size (measured in tokens of the LLM's tokenizer) is less than the maximum
@@ -70,12 +72,17 @@ pub fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Docum
 /// * `prompt_exec_summary`:
 ///
 /// returns: ()
-fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, prompt_part: &str, prompt_exec_summary: &str) {
+fn update_doc(
+    llm_params: &mut LLMParameters,
+    raw_doc: &mut document::Document,
+    prompt_part: &str,
+    prompt_exec_summary: &str,
+    llm_api_mutex_result: Option<&Arc<Mutex<isize>>>
+) {
 
     let summarize_fn = llm_params.sumarize_fn;
 
     let mut all_summaries: String = String::new();
-
     // prepare for executive summary:
     let exec_summ_prompt = format!(
         "{}\n{}\nPublish Date: {}",
@@ -87,117 +94,110 @@ fn update_doc(llm_params: &mut LLMParameters, raw_doc: &mut document::Document, 
     // check how long is the text + prompt in word counts and tokens,
     let full_text_tokens = TOKENS_PER_WORD * ((word_count(exec_summ_prompt.as_str()) + word_count(raw_doc.text.as_str()) ) as f64) ;
 
-    // compare with = llm_params.num_context,
-    // break up and process only if longer than max context:
-    if full_text_tokens > (llm_params.num_context as f64) {
+    if let Some(mut llm_api_mutex) = llm_api_mutex_result {
 
-        info!("{}: Summarizing in {} parts, document - '{}'",
-            PLUGIN_NAME, raw_doc.text_parts.len(), raw_doc.title
-        );
-        llm_params.prompt = prompt_part.to_string();
-        let mut part_no = raw_doc.text_parts.len();
+        // compare with = llm_params.num_context,
+        // break up and process only if longer than max context:
+        if full_text_tokens > (llm_params.num_context as f64) {
 
-        // pop out each part, process it and push to new vector, replace this updated vector in document
-        let mut updated_text_parts:  Vec<HashMap<String, Value>> = Vec::new();
+            info!("{}: Summarizing in {} parts, document - '{}'",
+                PLUGIN_NAME, raw_doc.text_parts.len(), raw_doc.title
+            );
+            llm_params.prompt = prompt_part.to_string();
+            let mut part_no = raw_doc.text_parts.len();
 
-        while raw_doc.text_parts.is_empty() == false {
+            // pop out each part, process it and push to new vector, replace this updated vector in document
+            let mut updated_text_parts:  Vec<HashMap<String, Value>> = Vec::new();
 
-            match &raw_doc.text_parts.pop(){
-                None => {break;}
-                Some(text_part) => {
-                    // if we should not overwrite, check whether a value exists
-                    if llm_params.overwrite_existing_value == false {
-                        match text_part.get("summary"){
-                            Some(summary) => {
-                                if summary.to_string().len() > MIN_ACCEPTABLE_SUMMARY_CHARS {
-                                    // add to part summaries
-                                    all_summaries.push_str(&format!("{},",summary));
-                                    // add as-is to output vector
-                                    let mut text_part_map_clone = text_part.clone();
-                                    updated_text_parts.push(text_part_map_clone);
-                                    info!("Not re-generating summary for part #{}", part_no);
-                                    // do not proceed further to generate summary:
-                                    continue;
-                                } else {
-                                    info!("Although overwrite={}, existing summary is inadequate, so re-generating it for part #{}",
-                                        llm_params.overwrite_existing_value,
-                                        part_no);
+            while raw_doc.text_parts.is_empty() == false {
+
+                match &raw_doc.text_parts.pop(){
+                    None => {break;}
+                    Some(text_part) => {
+                        // if we should not overwrite, check whether a value exists
+                        if llm_params.overwrite_existing_value == false {
+                            match text_part.get("summary"){
+                                Some(summary) => {
+                                    if summary.to_string().len() > MIN_ACCEPTABLE_SUMMARY_CHARS {
+                                        // add to part summaries
+                                        all_summaries.push_str(&format!("{},",summary));
+                                        // add as-is to output vector
+                                        let mut text_part_map_clone = text_part.clone();
+                                        updated_text_parts.push(text_part_map_clone);
+                                        info!("Not re-generating summary for part #{}", part_no);
+                                        // do not proceed further to generate summary:
+                                        continue;
+                                    } else {
+                                        info!("Although overwrite={}, existing summary is inadequate, so re-generating it for part #{}",
+                                            llm_params.overwrite_existing_value,
+                                            part_no);
+                                    }
                                 }
+                                _ => {}
                             }
-                            _ => {}
+                        }
+
+                        // else, compute the summary for this part:
+                        match text_part.get("text"){
+                            Some(text_string) => {
+                                let this_parts_text_length = text_string.to_string().len();
+                                if this_parts_text_length > MIN_ACCEPTABLE_SUMMARY_CHARS {
+                                    info!("Summarizing part #{}", part_no);
+                                    let mut text_part_map_clone = text_part.clone();
+                                    let summary_text = invoke_llm_func_with_lock(llm_api_mutex, text_string.to_string().as_str(), llm_params, summarize_fn);
+                                    _ = text_part_map_clone.insert("summary".to_string(), Value::String(summary_text.clone()));
+                                    updated_text_parts.push(text_part_map_clone);
+                                    all_summaries.push_str("\n");
+                                    all_summaries.push_str(summary_text.as_str());
+                                }
+                                else {
+                                    error!("Inadequate quantity of text to summarize (length = {}) for part #{}", this_parts_text_length, part_no);
+                                }
+                            },
+                            None => {}
                         }
                     }
-
-                    // else, compute the summary for this part:
-                    match text_part.get("text"){
-                        Some(text_string) => {
-                            let this_parts_text_length = text_string.to_string().len();
-                            if this_parts_text_length > MIN_ACCEPTABLE_SUMMARY_CHARS {
-                                info!("Summarizing part #{}", part_no);
-                                let mut text_part_map_clone = text_part.clone();
-                                let summary_text = summarize_fn(
-                                    text_string.to_string().as_str(),
-                                    llm_params
-                                );
-                                _ = text_part_map_clone.insert("summary".to_string(), Value::String(summary_text.clone()));
-                                updated_text_parts.push(text_part_map_clone);
-                                all_summaries.push_str("\n");
-                                all_summaries.push_str(summary_text.as_str());
-                            }
-                            else {
-                                error!("Inadequate quantity of text to summarize (length = {}) for part #{}", this_parts_text_length, part_no);
-                            }
-                        },
-                        None => {}
-                    }
                 }
+                part_no = part_no - 1;
             }
-            part_no = part_no - 1;
+            // put updated text_parts into document:
+            updated_text_parts.reverse();
+            raw_doc.text_parts = updated_text_parts;
         }
-        // put updated text_parts into document:
-        updated_text_parts.reverse();
-        raw_doc.text_parts = updated_text_parts;
-    }
-    else {
-        // use original doc for context:
-        info!("{}: Summarizing entire document at once - '{}'",
-            PLUGIN_NAME, raw_doc.title
-        );
-        all_summaries = raw_doc.text.clone();
-    }
+        else {
+            // use original doc for context:
+            info!("{}: Summarizing entire document at once - '{}'",
+                PLUGIN_NAME, raw_doc.title
+            );
+            all_summaries = raw_doc.text.clone();
+        }
 
-    llm_params.prompt = exec_summ_prompt.to_string();
-    // before generating summary, calculate how long is the context:
-    let full_context = word_count(
-        &format!("{}{}", exec_summ_prompt, all_summaries)
-    ) as f64 * TOKENS_PER_WORD;
-    let count_exec_summ_sub_parts = full_context / MAX_TOKENS;
+        llm_params.prompt = exec_summ_prompt.to_string();
+        // before generating summary, calculate how long is the context:
+        let full_context = word_count(
+            &format!("{}{}", exec_summ_prompt, all_summaries)
+        ) as f64 * TOKENS_PER_WORD;
+        let count_exec_summ_sub_parts = full_context / MAX_TOKENS;
 
-    // in the end check if existing exec_summary is longer than min_acceptable,
-    // and length of current summaries is more than acceptable summary, then.
-    // get exec summary prepared:
-    match raw_doc.generated_content.get("exec_summary"){
-        Some(existing_exec_summary) => {
-            // exec summary exists, but it is not adequate, so re-generate:
-            if existing_exec_summary.to_string().len() < MIN_ACCEPTABLE_SUMMARY_CHARS {
-                info!("Generating executive summary (in {} parts)",
-                        count_exec_summ_sub_parts);
-                let exec_summary_text = summarize_fn(
-                    all_summaries.as_str(),
-                    llm_params
-                );
+        // in the end check if existing exec_summary is longer than min_acceptable,
+        // and length of current summaries is more than acceptable summary, then.
+        // get exec summary prepared:
+        match raw_doc.generated_content.get("exec_summary"){
+            Some(existing_exec_summary) => {
+                // exec summary exists, but it is not adequate, so re-generate:
+                if existing_exec_summary.to_string().len() < MIN_ACCEPTABLE_SUMMARY_CHARS {
+                    info!("Generating executive summary (in {} parts)",
+                            count_exec_summ_sub_parts);
+                    let exec_summary_text = invoke_llm_func_with_lock(llm_api_mutex, all_summaries.as_str(), llm_params, summarize_fn);
+                    raw_doc.generated_content.insert("exec_summary".to_string(), exec_summary_text);
+                }
+            },
+            None => {
+                let exec_summary_text = invoke_llm_func_with_lock(llm_api_mutex, all_summaries.as_str(), llm_params, summarize_fn);
                 raw_doc.generated_content.insert("exec_summary".to_string(), exec_summary_text);
             }
-        },
-        None => {
-            let exec_summary_text = summarize_fn(
-                all_summaries.as_str(),
-                llm_params
-            );
-            raw_doc.generated_content.insert("exec_summary".to_string(), exec_summary_text);
         }
     }
-
     info!("{}: Completed processing document - '{}'.", PLUGIN_NAME, raw_doc.title);
 }
 

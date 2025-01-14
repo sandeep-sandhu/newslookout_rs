@@ -3,14 +3,16 @@
 const PLUGIN_NAME: &str = "mod_cmdline";
 pub const PUBLISHER_NAME: &str = "Command Line";
 
+use std::collections::HashMap;
 use std::process::Command;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use config::Config;
 use log::{error, info};
 use rusqlite::Params;
 use crate::{document, get_plugin_cfg};
 
-pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config){
+pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document::Document>, app_config: &Config, api_mutexes: &mut HashMap<String, Arc<Mutex<isize>>>){
 
 
     let mut command_name = String::from("cmd");

@@ -215,12 +215,12 @@
 //! These can be readily extended for other websites as required.
 //! 
 //! Refer to the README file and the source code of these in the plugins folder and roll out your own plugins.
-//! 
+//!
 
-
+use std::collections::HashMap;
 use std::env;
 use std::io::Write;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use ::config::Config;
 use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
@@ -231,7 +231,7 @@ use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::config::{Appender, Root};
 use log4rs::filter::threshold::ThresholdFilter;
-use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPlugin, start_data_pipeline};
+use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPlugin, start_data_pipeline, create_api_mutexes};
 
 pub mod plugins {
     pub mod mod_en_in_indiankanoon;
@@ -278,16 +278,16 @@ const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 /// newslookout::run_app(config);</tt>
 ///
 pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
-    // TODO: use Arc
     let configref: Arc<config::Config> = Arc::new(config);
 
     init_pid_file(configref.clone());
     init_logging(configref.clone());
 
     log::info!("Starting the data pipeline, library v{}", VERSION);
+    let all_api_mutexes: HashMap<String, Arc<Mutex<isize>>> = create_api_mutexes();
 
     let retriever_plugins = load_retriever_plugins(configref.clone());
-    let data_proc_plugins = load_dataproc_plugins(configref.clone());
+    let data_proc_plugins = load_dataproc_plugins(configref.clone(), all_api_mutexes);
 
     let docs_retrieved = start_data_pipeline(
         retriever_plugins,

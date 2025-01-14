@@ -109,10 +109,11 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_hindu", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_indiankanoon", "type"="retriever", "priority"=5}
+ , {"enabled"=true, "name"="mod_en_huffingtonpost", "type"="retriever", "priority"=5}
  , {"enabled"=true, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
- , {"enabled"=false, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "max_pages"=10, "items_per_page"=10}
+ , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "max_pages"=10, "items_per_page"=10}
  , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=999999}
 # , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="pdf", "folder_name"="data/pdf_files", "published_in_past_days"=999999}
  # the following are data processing plugins that will be run serially, in order of priority:
@@ -121,18 +122,18 @@ plugins = [
  # it is recommended to keep these plugins disabled, they will slow down the entire application
  # since the models are very large and computationally intensive
  # enable them if you are running the application on very capable hardware > 16GB RAM and 8 CPU:
- , {"enabled"=false, "name"="mod_dedupe", "type"="data_processor", "priority"=2, "spacymodel"="en_core_web_lg"}
+ , {"enabled"=false, "name"="mod_dedupe", "type"="data_processor", "priority"=4, "spacymodel"="en_core_web_lg"}
  # For the news event tone classification model - finBERT:
  # Download the models from:
  # https://gohkust-my.sharepoint.com/:f:/g/personal/imyiyang_ust_hk/EksJcamJpclJlbMweFfB5DQB1XrsxURYN5GSqZw3jmSeSw?e=KAyhsX
  # obtain the vocabulary file from:
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
- , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=3, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=false, "name"="mod_summarize", "type"="data_processor", "priority"=5, "llm_service"="ollama", "overwrite"=false, "max_word_count"=850}
- , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=7, "host_port"="https://127.0.0.1:3839", "username"="solr"}
- , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=8, "destination"="vectorindex", "file_format"="json"}
- , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=10, "destination"="file", "file_format"="json"}
+ , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=5, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
+ , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=7, "llm_service"="ollama", "overwrite"=false, "max_word_count"=850}
+ , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=9, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=11, "destination"="vectorindex", "file_format"="json"}
+ , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=13, "destination"="file", "file_format"="json"}
  # here, the custom command line plugin needs to run last in the data processing pipeline as it expects to retrieve the document from a file.
  , {"enabled"=true, "name"="mod_cmdline", "type"="data_processor", "priority"=99, "command_name"="C:\\temp\\testecho.cmd"}
 ]
@@ -141,7 +142,13 @@ model_api_timeout=200
 save_intermediate=true
 model_temperature=0
 
-# for ollama based models, confirm these as each model will have different limits:
+# Choose between LLM model services:
+# google_genai (this is the newer google genai API)
+# ollama
+# chatgpt
+# gemini
+
+# for ollama based models, confirm these  before using since each local model may have different limits:
 max_llm_context_tokens=16384
 max_gen_tokens=16384
 
@@ -151,8 +158,13 @@ ollama_model_name="gemma2"
 chatgpt_svc_url="https://api.openai.com/v1/chat/completions"
 chatgpt_model_name="gpt-4o-mini"
 
-gemini_svc_url="https://generativelanguage.googleapis.com/v1beta/models/"
+# this is the older google API:
+gemini_svc_url="https://generativelanguage.googleapis.com/v1beta/models"
 gemini_model_name="gemini-1.5-flash"
+
+# this is the newer google genai API:
+google_genai_svc_url="https://generativelanguage.googleapis.com/v1beta/models"
+google_genai_model_name="gemini-2.0-flash-exp"
 
 prompt_summary_part="""Summarize the following text in less than 250 words.
 Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.

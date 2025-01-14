@@ -5,7 +5,7 @@ extern crate pdf_extract;
 extern crate lopdf;
 
 use std::string::String;
-use std::{collections, fs};
+use std::{collections, fs, panic};
 use std::io::BufWriter;
 use std::io::Write;
 use std::path;
@@ -16,6 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use nom::AsBytes;
 use log::{debug, error, info, LevelFilter, warn};
@@ -357,7 +358,14 @@ pub fn load_pdf_content(
             if input_doc.text.len() > 1 {
                 let txt_filename = make_unique_filename(&input_doc, "txt");
                 let txt_file_path = Path::new(data_folder).join(&txt_filename);
-                input_doc.text = extract_text_from_pdf(pdf_file_path, txt_file_path);
+                let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                    input_doc.text = extract_text_from_pdf(pdf_file_path, txt_file_path);
+                }));
+                if result.is_err() {
+                    if let Err(errvar) = result {
+                        error!("When reading PDF file the error was: {:?}", errvar);
+                    }
+                }
             }
         }else {
             // get pdf content, and its plaintext output
@@ -398,23 +406,33 @@ pub fn extract_text_from_pdf(pdf_file_path: PathBuf, txt_file_path: PathBuf) -> 
     // prepare buffer for text
     let mut output = pdf_extract::PlainTextOutput::new(
         &mut output_file as &mut dyn std::io::Write);
+
     // load the pdf file
-    match pdf_extract::Document::load(pdf_file_path){
+    match pdf_extract::Document::load(pdf_file_path.as_os_str()){
         Ok(doc) => {
             debug!("Converting pdf to text file: {:?}", txt_file_path);
-            // extract the text:
-            pdf_extract::output_doc(&doc, output.borrow_mut())
-                .expect("Could not convert to text file");
-            let plaintext = fs::read_to_string(&txt_file_path)
-                .expect("Could not read text from pdf.");
-            match fs::remove_file(txt_file_path){
-                Ok(_) => {}
-                Err(e) => {error!("When deleting txt file extract from pdf: {}", e)}
+            // wrap in unwind block to trap errors:
+            let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                // extract the text:
+                pdf_extract::output_doc(&doc, output.borrow_mut())
+                    .expect("Could not convert to text file");
+                let plaintext = fs::read_to_string(&txt_file_path)
+                    .expect("Could not read text from pdf.");
+                match fs::remove_file(txt_file_path){
+                    Ok(_) => {}
+                    Err(e) => {error!("When deleting txt file extract from pdf: {}", e)}
+                }
+                return plaintext;
+            }));
+            if result.is_err() {
+                if let Err(errvar) = result {
+                    error!("When reading PDF file '{:?}' the error was: {:?}", pdf_file_path, errvar);
+                }
             }
-            return plaintext;
         }
         Err(e) => error!("When opening pdf file: {}", e)
     }
+    error!("Unable to read text from PDF file '{:?}'", pdf_file_path);
     String::from("")
 }
 
@@ -427,9 +445,9 @@ pub fn retrieve_pdf_content(pdf_url: &str, client: &reqwest::blocking::Client) -
         },
         Err(outerr) => {
             error!("When converting pdf content into text: {}", outerr);
+            return (pdf_data, String::new());
         }
     }
-    return (pdf_data, String::new());
 }
 
 

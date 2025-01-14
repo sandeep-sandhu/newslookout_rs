@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use config::Config;
 use log::{debug, error, info};
 use regex::Regex;
@@ -25,7 +26,7 @@ const PUBLISHER_NAME: &str = "Split document text";
 ///
 /// returns: ()
 ///
-pub(crate) fn process_data(tx: Sender<Document>, rx: Receiver<Document>, app_config: &Config){
+pub(crate) fn process_data(tx: Sender<Document>, rx: Receiver<Document>, app_config: &Config, api_mutexes: &mut HashMap<String, Arc<Mutex<isize>>>){
 
     info!("{}: Getting configuration.", PLUGIN_NAME);
     let mut min_word_limit_to_split: u64 = 600;

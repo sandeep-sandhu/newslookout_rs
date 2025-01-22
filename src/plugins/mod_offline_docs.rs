@@ -29,7 +29,7 @@ const PUBLISHER_NAME: &str = "Read documents from disk";
 
 pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<config::Config>) {
 
-    info!("{}: Starting worker", PLUGIN_NAME);
+    info!("{}: Starting plugin", PLUGIN_NAME);
     // get parameter file_extension
     let mut file_extension = String::from("json");
 
@@ -43,7 +43,22 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
     match get_plugin_cfg!(PLUGIN_NAME, "published_in_past_days", &app_config) {
         Some(published_in_past_days_str) => {
             match published_in_past_days_str.parse::<usize>(){
-                Result::Ok(configintvalue) => published_in_past_days =configintvalue, Err(e)=>{}
+                Result::Ok(configintvalue) => published_in_past_days =configintvalue,
+                Err(e)=>{
+                    error!("{}: Invalid value of attribute 'published_in_past_days', read as: {}", PLUGIN_NAME, published_in_past_days_str);
+                }
+            }
+        }, None => {}
+    };
+
+    let mut min_file_size_bytes:usize = 1;
+    match get_plugin_cfg!(PLUGIN_NAME, "min_file_size_bytes", &app_config) {
+        Some(min_file_size_bytes_str) => {
+            match min_file_size_bytes_str.parse::<usize>(){
+                Result::Ok(configintvalue) => min_file_size_bytes =configintvalue,
+                Err(e)=>{
+                    error!("{}: Invalid value of attribute 'min_file_size_bytes', read as: {}", PLUGIN_NAME, min_file_size_bytes_str);
+                }
             }
         }, None => {}
     };
@@ -55,10 +70,9 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
             data_folder_name =param_str;
             // read all docs from data_folder_name:
             info!("{}: Getting list of all '{}' files in path: {}", PLUGIN_NAME, file_extension, data_folder_name);
-            let all_files_in_dir: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name.as_str(), file_extension.as_str());
-
+            let all_files_in_dir: Vec<PathBuf> = get_files_listing_from_dir(data_folder_name.as_str(), file_extension.as_str(), min_file_size_bytes);
+            debug!("{}: Files listing: {:?}", PLUGIN_NAME, all_files_in_dir);
             let doc_count = get_and_send_docs_from_data_folder(all_files_in_dir, tx, file_extension.as_str(), published_in_past_days);
-
             info!("{}: processed {} documents.", PLUGIN_NAME, doc_count);
         }, None => {
             error!("{}: Could not read folder name from config file.", PLUGIN_NAME);
@@ -181,16 +195,14 @@ fn check_pubdate_within_days(pubdate_ms: i64, published_within_days: i64) -> boo
 }
 
 fn custom_data_processing(mydoc: &mut document::Document){
-    info!("{}: processing url document with title - '{}'", PLUGIN_NAME, mydoc.title);
+    debug!("{}: processing url document with title - '{}'", PLUGIN_NAME, mydoc.title);
     // implement any custom data processing here
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Add;
+
     use chrono::{DateTime, FixedOffset, Local, TimeDelta};
-    use chrono::format::Fixed::TimezoneName;
-    use crate::plugins::mod_offline_docs;
     use crate::plugins::mod_offline_docs::check_pubdate_within_days;
 
     #[test]
@@ -200,13 +212,13 @@ mod tests {
         let example1_pubdate_ms = 1385663400;
         let example1_days_within = 30;
         let example1_result = check_pubdate_within_days(example1_pubdate_ms, example1_days_within);
-        // println!("check: {} - {} > {}  ? = {}", timenow, example1_days_within, example1_pubdate_ms, example1_result);
+        println!("check: {} - {} > {}  ? = {}", timenow, example1_days_within, example1_pubdate_ms, example1_result);
         assert_eq!(example1_result, false);
         //
         let example2_pubdate_ms = 1722277800;
         let example2_days_within = 115;
         let example2_result = check_pubdate_within_days(example2_pubdate_ms, example2_days_within);
-        // println!("check: {} - {} > {:?}  ? = {}", timenow.format("%Y-%m-%d"), example2_days_within, chrono::DateTime::from_timestamp(example2_pubdate_ms,0).expect("need timestamp").format("%Y-%m-%d"), example2_result);
+        println!("check: {} - {} > {:?}  ? = {}", timenow.format("%Y-%m-%d"), example2_days_within, chrono::DateTime::from_timestamp(example2_pubdate_ms,0).expect("need timestamp").format("%Y-%m-%d"), example2_result);
         assert_eq!(example2_result, false);
     }
 }

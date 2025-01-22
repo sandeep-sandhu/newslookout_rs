@@ -130,7 +130,7 @@ plugins = [
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
  , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=5, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=7, "llm_service"="ollama", "overwrite"=false, "max_word_count"=850}
+ , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=7, "llm_service"="gemini", "overwrite"=false, "max_word_count"=850}
  , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=9, "host_port"="https://127.0.0.1:3839", "username"="solr"}
  , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=11, "destination"="vectorindex", "file_format"="json"}
  , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=13, "destination"="file", "file_format"="json"}
@@ -138,20 +138,50 @@ plugins = [
  , {"enabled"=true, "name"="mod_cmdline", "type"="data_processor", "priority"=99, "command_name"="C:\\temp\\testecho.cmd"}
 ]
 
-model_api_timeout=200
 save_intermediate=true
 model_temperature=0
+max_context_len = 16384
+max_gen_tokens = 8192
+
+
+[llm_apis."google_genai"]
+max_context_len = 16384
+max_gen_tokens = 8192
+temperature = 0.0
+model_name = "gemini-2.0-flash-exp"
+api_url = "https://generativelanguage.googleapis.com/v1beta/models"
+model_api_timeout=200
+
+[llm_apis."chatgpt"]
+max_context_len = 16384
+max_gen_tokens = 8192
+temperature = 0.0
+model_name = "gpt-4o-mini"
+api_url = "https://api.openai.com/v1/chat/completions"
+model_api_timeout=200
+
+[llm_apis."gemini"]
+max_context_len = 16384
+max_gen_tokens = 8192
+temperature = 0.0
+model_name = "gemini-1.5-flash"
+api_url = "https://generativelanguage.googleapis.com/v1beta/models"
+model_api_timeout=200
+
+[llm_apis."ollama"]
+max_context_len = 8192
+max_gen_tokens = 8192
+temperature = 0.0
+model_name = "gemma2"
+api_url = "http://127.0.0.1:11434/api/generate"
+model_api_timeout=200
+
 
 # Choose between LLM model services:
 # google_genai (this is the newer google genai API)
 # ollama
 # chatgpt
 # gemini
-
-# for ollama based models, confirm these  before using since each local model may have different limits:
-max_llm_context_tokens=16384
-max_gen_tokens=16384
-
 ollama_svc_url="http://127.0.0.1:11434/api/generate"
 ollama_model_name="gemma2"
 
@@ -166,11 +196,12 @@ gemini_model_name="gemini-1.5-flash"
 google_genai_svc_url="https://generativelanguage.googleapis.com/v1beta/models"
 google_genai_model_name="gemini-2.0-flash-exp"
 
-prompt_summary_part="""Summarize the following text in less than 250 words.
+
+prompt_summary_part="""Summarize the following part of a document in less than 250 words.
 Walk through the text in manageable parts step by step, analyzing, grouping similar topics and summarizing as you go.
 TEXT:"""
 
-prompt_summary_exec="""Summarize the following text in less than 500 words.
+prompt_summary_exec="""Summarize the following text from a document in less than 500 words.
 Walk through the text in manageable parts step by step, analyzing and grouping similar topics and summarizing as you go.
 TEXT:"""
 

@@ -1,5 +1,6 @@
 // Configuration functions
 
+use std::cmp::max;
 use config::{Config, Environment, FileFormat};
 use log::error;
 use std::env;
@@ -217,6 +218,65 @@ macro_rules! get_plugin_cfg {
             }
         }
     };
+}
+
+
+// Usage:
+// if let Ok((api_url, model_name, max_context_len, max_gen_tokens, temperature)) = get_llm_svc_details(&app_confg, "chatgpt")
+// {
+//     println!("\nllm_service_name={}\n\tmodel_name={}, max_gen_tokens={}, max_context_len={}, temperature={}, api_url={}",
+//              llm_svc, model_name, max_context_len, max_gen_tokens, temperature, api_url);
+// }
+pub fn get_llm_svc_details(app_confg: &Config, llm_svc_queried: &str) -> Result<(String, String, u64, u64, f64), String> {
+
+    // specify default values:
+    let mut max_gen_tokens: i64 = 8192;
+    let mut max_context_len: i64 = 8192;
+    let mut temperature = 0.0;
+    let mut model_name = String::new();
+    let mut api_url = String::new();
+
+    let config_table = app_confg.get_table("llm_apis").unwrap();
+
+    if let Some((llm_name, llm_val)) = config_table.get_key_value(llm_svc_queried) {
+        match llm_val.clone().into_table(){
+            Ok(entry_table) => {
+                match entry_table.get("max_gen_tokens") {
+                    None => {}
+                    Some(max_gen_tokens_val) => {
+                        max_gen_tokens = max_gen_tokens_val.clone().into_int().unwrap_or_default();
+                    }
+                }
+                match entry_table.get("max_context_len"){
+                    None => {}
+                    Some(max_context_len_val) => {
+                        max_context_len = max_context_len_val.clone().into_int().unwrap_or_default();
+                    }
+                }
+                match entry_table.get("temperature"){
+                    None => {}
+                    Some(temperature_val) => {
+                        temperature = temperature_val.clone().into_float().unwrap_or_default();
+                    }
+                }
+                match entry_table.get("api_url"){
+                    None => {}
+                    Some(api_url_val) => {
+                        api_url = api_url_val.clone().into_string().unwrap_or_default();
+                    }
+                }
+                match entry_table.get("model_name"){
+                    None => {}
+                    Some(model_name_val) => {
+                        model_name = model_name_val.clone().into_string().unwrap_or_default();
+                    }
+                }
+                return Ok( (api_url, model_name, max(0, max_context_len) as u64, max(0, max_gen_tokens) as u64, temperature) );
+            },
+            Err(er) => { return Err(er.to_string())}
+        }
+    }
+    return Err("Config not found".to_string());
 }
 
 

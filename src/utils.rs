@@ -41,7 +41,8 @@ use scraper::{ElementRef};
 use crate::{document, network, utils};
 use crate::document::{Document};
 
-
+const MAX_CHARACTERS_IN_FILENAME: usize = 64;
+pub(crate) const AVG_TOKENS_PER_WORD: f64 = 1.333;
 
 pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) {
 
@@ -83,6 +84,55 @@ pub fn clean_text(text: String) -> String {
     x.join(" ").trim().to_string()
 }
 
+/// Removes all characters that may be invalid characters in windows as well as UNIX filesystems.
+/// For example - ?, *, |, etc.
+///
+/// # Arguments
+///
+/// * `input_text`:
+///
+/// returns: String
+pub fn replace_invalid_filesystem_chars(input_text: &str) -> String {
+    // TODO: find and replace any ASCII characters of values from 0 to 31
+    // (these are ASCII control characters)
+    return input_text.to_string().replace(".html", "")
+        .replace(".htm", "")
+        .replace(".php", "")
+        .replace(".pdf", "")
+        .replace(".aspx", "")
+        .replace(".asp", "")
+        .replace(".jsp", "")
+        .replace("%20", "_")
+        .replace("%E2%82%B9", "")
+        .replace("&amp;", "_")
+        .replace("&nbsp;", "_")
+        .replace("/", "")
+        .replace("\\", "")
+        .replace("?", "_")
+        .replace("|", "_")
+        .replace("*", "")
+        .replace(":", "")
+        .replace("=", "_")
+        .replace("+", "_")
+        .replace("'", "")
+        .replace("`", "")
+        .replace(";", "_")
+        .replace("&", "_")
+        .replace("%", "_")
+        .replace("@", "_")
+        .replace("#", "_")
+        .replace("!", "_")
+        .replace("{", "_")
+        .replace("}", "_")
+        .replace("<", "_")
+        .replace(">", "_")
+        .replace(" ", "_")
+        .replace("__", "_")
+        .replace("__", "_")
+        .replace("__", "_")
+        .replace("__", "_")
+}
+
 /// Generates a unique filename from the document structure fields.
 /// Start building the filename with module and section name.
 /// Then append only last 64 characters or url resource after stripping out special charcters.
@@ -102,9 +152,9 @@ pub fn clean_text(text: String) -> String {
 ///
 pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String{
     // limit name to given characters in length:
-    let max_characters: usize = 64;
-    let mut filename_prefix = format!("{}_{}_", doc_struct.module, doc_struct.section_name);
-
+    let mut filename_prefix = replace_invalid_filesystem_chars(
+        format!("{}_{}_", doc_struct.module, doc_struct.section_name).as_str()
+    );
     let mut hasher = std::hash::DefaultHasher::new();
     doc_struct.url.hash(&mut hasher);
     let mut unique_string = hasher.finish().to_string();
@@ -113,57 +163,16 @@ pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) ->
 
     match doc_struct.url.rfind('/') {
         Some(slash_pos_in_url) =>{
-            let mut url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
-                .replace(".html", "")
-                .replace(".htm", "")
-                .replace(".php", "")
-                .replace(".pdf", "")
-                .replace(".aspx", "")
-                .replace(".asp", "")
-                .replace(".jsp", "")
-                .replace("/", "")
-                .replace("\\", "")
-                .replace("?", "_")
-                .replace("*", "")
-                .replace(":", "")
-                .replace("%20", "_")
-                .replace("%E2%82%B9", "")
-                .replace("+", "_")
-                .replace("'", "")
-                .replace(" ", "_")
-                .replace("__", "_")
-                .replace("__", "_")
-                .replace("__", "_");
-            url_resname = url_resname.chars().rev().take(max_characters).collect();
+            let mut url_resname = replace_invalid_filesystem_chars(&doc_struct.url[(slash_pos_in_url+1)..]);
+            url_resname = url_resname.chars().rev().take(MAX_CHARACTERS_IN_FILENAME).collect();
             url_resname = url_resname.chars().rev().collect();
             filename_prefix.push_str(url_resname.as_str());
         }
         None => {
             match doc_struct.url.rfind('\\') {
                 Some(slash_pos_in_url) =>{
-                    let mut url_resname = (&doc_struct.url[(slash_pos_in_url+1)..])
-                        .replace(".html", "")
-                        .replace(".htm", "")
-                        .replace(".php", "")
-                        .replace(".pdf", "")
-                        .replace(".aspx", "")
-                        .replace(".asp", "")
-                        .replace(".jsp", "")
-                        .replace("/", "")
-                        .replace("\\", "")
-                        .replace("?", "_")
-                        .replace("*", "")
-                        .replace(":", "")
-                        .replace("%20", "_")
-                        .replace("%E2%82%B9", "")
-                        .replace("+", "_")
-                        .replace("'", "")
-                        .replace("–", "_")
-                        .replace(" ", "_")
-                        .replace("__", "_")
-                        .replace("__", "_")
-                        .replace("__", "_");
-                    url_resname = url_resname.chars().rev().take(max_characters).collect();
+                    let mut url_resname = replace_invalid_filesystem_chars(&doc_struct.url[(slash_pos_in_url+1)..]);
+                    url_resname = url_resname.chars().rev().take(MAX_CHARACTERS_IN_FILENAME).collect();
                     url_resname = url_resname.chars().rev().collect();
                     filename_prefix.push_str(url_resname.as_str());
                 },
@@ -208,7 +217,8 @@ pub fn to_local_datetime(date: NaiveDate) -> DateTime<Local> {
 
 // Get files listing from data folder
 // Filter list by file extension
-pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) -> Vec<PathBuf> {
+// and size greater than or equal to min_file_size_bytes
+pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str, min_file_size_bytes: usize) -> Vec<PathBuf> {
 
     let mut all_file_paths: Vec<PathBuf> = Vec::new();
 
@@ -223,7 +233,13 @@ pub fn get_files_listing_from_dir(data_folder_name: &str, file_extension: &str) 
                 // Filter out all paths with extensions other than file_extension
                 .filter_map(|path| {
                     if path.extension().map_or(false, |ext| ext == file_extension) {
-                        Some(path)
+                        // get and pass through files with size greater than or equal to min_file_size_bytes
+                        let file_size_bytes = fs::metadata(path.clone()).expect("Valid file size expected").len();
+                        if file_size_bytes >= min_file_size_bytes as u64 {
+                            Some(path)
+                        }else {
+                            None
+                        }
                     } else {
                         None
                     }

@@ -25,6 +25,7 @@ use crate::plugins::mod_summarize::PLUGIN_NAME;
 use crate::cfg::{get_data_folder};
 use crate::utils::{make_unique_filename, save_to_disk_as_json, split_by_word_count};
 
+pub const MIN_ACCEPTABLE_INPUT_CHARS: usize = 50;
 pub const MIN_ACCEPTABLE_SUMMARY_CHARS: usize = 25;
 pub const MAX_TOKENS: f64 = 8000.0;
 pub const TOKENS_PER_WORD: f64 = 1.33;
@@ -58,11 +59,11 @@ pub fn invoke_llm_func_with_lock(api_access_mutex: &Arc<Mutex<isize>>, llm_input
     // get current timestamp:
     let mut duration_now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let seconds_elapsed = (duration_now-duration_previous).as_secs();
-    info!("API mutex elapsed seconds: {}", seconds_elapsed);
+    info!("Shared API access elapsed seconds: {}", seconds_elapsed);
     // check if current tiemstamp is more than given duration from mutex value,
     if seconds_elapsed < MIN_GAP_BTWN_RQST_SECS {
         // add delay in seconds to make up for the remaining time:
-        info!("Waiting for additional delay of {} seconds to throttle API calls.", MIN_GAP_BTWN_RQST_SECS-seconds_elapsed);
+        info!("Additional {} seconds delay to limit API requests/sec", MIN_GAP_BTWN_RQST_SECS-seconds_elapsed);
         thread::sleep(Duration::from_secs(MIN_GAP_BTWN_RQST_SECS -seconds_elapsed));
     }
     // set current timestamp and then return

@@ -246,6 +246,32 @@ pub mod plugins {
     pub mod mod_solrsubmit;
     pub mod mod_persist_data;
     pub mod mod_cmdline;
+    pub mod mod_en_in_thehindu;
+    pub mod mod_en_in_ndtv;
+    pub mod mod_en_in_livemint;
+    pub mod mod_en_in_moneycontrol;
+    pub mod mod_en_in_timesofindia;
+    pub mod mod_en_in_forbes;
+    pub mod mod_en_reuters;
+    pub mod mod_en_bbc;
+    pub mod mod_en_guardian;
+    pub mod mod_en_bloomberg;
+    pub mod mod_en_ap_news;
+    pub mod mod_en_in_indianexpress;
+    pub mod mod_en_in_generic_retriever;
+    pub mod mod_en_yahoo_news;
+    pub mod mod_en_in_hindustan_times;
+    pub mod mod_en_in_news18;
+    pub mod mod_en_aljazeera;
+    pub mod mod_en_nhk_world;
+    pub mod mod_en_arab_news;
+    pub mod mod_en_gulf_news;
+    pub mod mod_en_khaleej_times;
+    pub mod mod_en_the_national;
+    pub mod mod_en_news24;
+    pub mod mod_en_guardian_ng;
+    pub mod mod_en_punch_ng;
+    pub mod mod_en_allafrica;
 }
 
 pub mod network;
@@ -255,6 +281,7 @@ pub mod document;
 pub mod html_extract;
 pub mod pipeline;
 pub mod cfg;
+pub mod content_extraction;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");

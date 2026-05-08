@@ -94,8 +94,8 @@ fn save_to_file(
             received.filename = String::from(json_file_path.as_path().to_str().expect("Not able to convert path to string"));
 
             info!("Writing document to file: {} url: {:?}", received.filename, received.url);
-            // serialize json to string
-            match serde_json::to_string_pretty(&received){
+            // serialize json to string using the output format
+            match serde_json::to_string_pretty(&received.to_output_json()){
                 Ok(json_data) => {
                     // persist to json
                     match File::create(&json_file_path){

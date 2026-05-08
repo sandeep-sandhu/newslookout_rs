@@ -15,7 +15,7 @@ use chrono::{NaiveDate, Utc};
 use log::{debug, error, info};
 use nom::AsBytes;
 use pdf_extract::extract_text_from_mem;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use reqwest;
 use scraper::ElementRef;
 use serde_json::{json, Value};
@@ -141,7 +141,7 @@ fn retrieve_data(
     let mut already_retrieved_urls = get_urls_from_database(database_filename, PLUGIN_NAME);
     info!("For Plugin {}: Got {} previously retrieved urls from table.", PLUGIN_NAME, already_retrieved_urls.len());
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut counter = 0;
 
     for (starter_url, section_name) in starter_urls {
@@ -153,7 +153,7 @@ fn retrieve_data(
             listing_url_with_args.push_str(&urlargs);
 
             // retrieve content from this url and extract vector of documents, mainly individual urls to retrieve.
-            let content = network::http_get(&listing_url_with_args, &client, (&netw_params).retry_times, rng.gen_range((&netw_params).wait_time_min..=((&netw_params).wait_time_min*3)));
+            let content = network::http_get(&listing_url_with_args, &client, (&netw_params).retry_times, rng.random_range((&netw_params).wait_time_min..=((&netw_params).wait_time_min*3)));
             let count_of_docs = get_docs_from_listing_page(
                 content,
                 &tx,
@@ -290,7 +290,7 @@ pub fn get_docs_from_listing_page(
 /// returns: ()
 fn populate_content_in_doc(this_new_doc: &mut Document, client: &reqwest::blocking::Client, netw_params: &NetworkParameters) {
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // to select div with class = "Notification-content-wrap"
     let whole_page_content_selector = scraper::Selector::parse("div.Notification-content-wrap").unwrap();
@@ -300,7 +300,7 @@ fn populate_content_in_doc(this_new_doc: &mut Document, client: &reqwest::blocki
         &this_new_doc.url,
         &client,
         netw_params.retry_times,
-        rng.gen_range(netw_params.wait_time_min..=(netw_params.wait_time_max*3))
+        rng.random_range(netw_params.wait_time_min..=(netw_params.wait_time_max*3))
     );
 
     // TODO: apply logic for press release introducing new notification
@@ -337,12 +337,12 @@ fn clean_recepients(recepients: &str) -> String{
     let letter_greeting_regex: Regex = Regex::new(
         r"([Dear ]*Madam[ ]*/[Dear ]*Sir|Dear Sir/|Dear Sir /|Madam / Dear Sir|Madam / Sir|Madam|Sir)"
     ).unwrap();
-    // locate letter greeting regex, split text on this regex
-    // remove part matching regex and after that
-    for substr in letter_greeting_regex.split(recepients){
+    // locate letter greeting regex, split text on this regex,
+    // return only the first part (before any greeting)
+    if let Some(substr) = letter_greeting_regex.split(recepients).next() {
         return substr.trim().to_string();
     }
-    return recepients.to_string();
+    recepients.to_string()
 }
 
 #[cfg(test)]

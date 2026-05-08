@@ -114,6 +114,31 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "max_pages"=10, "items_per_page"=10}
+ , {"enabled"=true, "name"="mod_en_in_thehindu", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
+ , {"enabled"=true, "name"="mod_en_reuters", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_bbc", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_guardian", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_bloomberg", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_ap_news", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_in_indianexpress", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_yahoo_news", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_in_hindustan_times", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_news18", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_aljazeera", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_nhk_world", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_arab_news", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_gulf_news", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_khaleej_times", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_the_national", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_news24", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_guardian_ng", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_punch_ng", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_allafrica", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=999999}
 # , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="pdf", "folder_name"="data/pdf_files", "published_in_past_days"=999999}
  # the following are data processing plugins that will be run serially, in order of priority:
@@ -129,14 +154,18 @@ plugins = [
  # obtain the vocabulary file from:
  # https://gohkust-my.sharepoint.com/:t:/g/personal/imyiyang_ust_hk/EX3C-KM9bTxOjdttsPslLZUBw_mh9Jdh8PB0WTv6b2tEIA?e=DYBVJY
  # save the model file and the config.json file to the folders specified here:
- , {"enabled"=true, "name"="mod_classify", "type"="data_processor", "priority"=5, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
- , {"enabled"=true, "name"="mod_summarize", "type"="data_processor", "priority"=7, "llm_service"="gemini", "overwrite"=false, "max_word_count"=850}
- , {"enabled"=true, "name"="mod_solrsubmit", "type"="data_processor", "priority"=9, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=false, "name"="mod_classify", "type"="data_processor", "priority"=5, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
+ , {"enabled"=false, "name"="mod_summarize", "type"="data_processor", "priority"=7, "llm_service"="gemini", "overwrite"=false, "max_word_count"=850}
+ , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=9, "host_port"="https://127.0.0.1:3839", "username"="solr"}
  , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=11, "destination"="vectorindex", "file_format"="json"}
  , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=13, "destination"="file", "file_format"="json"}
  # here, the custom command line plugin needs to run last in the data processing pipeline as it expects to retrieve the document from a file.
- , {"enabled"=true, "name"="mod_cmdline", "type"="data_processor", "priority"=99, "command_name"="C:\\temp\\testecho.cmd"}
+ , {"enabled"=false, "name"="mod_cmdline", "type"="data_processor", "priority"=99, "command_name"="dummy_upload2bucket.sh"}
 ]
+
+# Content extraction settings
+content_extraction_min_quality = 0.1
+content_extraction_model_file = "models/dqn_model.safetensors"
 
 save_intermediate=true
 model_temperature=0
@@ -183,14 +212,14 @@ model_api_timeout=200
 # chatgpt
 # gemini
 ollama_svc_url="http://127.0.0.1:11434/api/generate"
-ollama_model_name="gemma2"
+ollama_model_name="gemma4"
 
 chatgpt_svc_url="https://api.openai.com/v1/chat/completions"
 chatgpt_model_name="gpt-4o-mini"
 
 # this is the older google API:
 gemini_svc_url="https://generativelanguage.googleapis.com/v1beta/models"
-gemini_model_name="gemini-1.5-flash"
+gemini_model_name="gemini-2.5-flash"
 
 # this is the newer google genai API:
 google_genai_svc_url="https://generativelanguage.googleapis.com/v1beta/models"

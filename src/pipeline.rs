@@ -21,7 +21,16 @@ use rusqlite;
 use crate::document;
 use crate::network;
 use crate::utils;
-use crate::plugins::{mod_en_in_business_standard, mod_en_in_rbi, mod_offline_docs, mod_classify, split_text, mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore, mod_cmdline};
+use crate::plugins::{
+    mod_en_in_business_standard, mod_en_in_rbi, mod_offline_docs, mod_classify, split_text,
+    mod_dedupe, mod_solrsubmit, mod_summarize, mod_persist_data, mod_vectorstore, mod_cmdline,
+    mod_en_in_thehindu, mod_en_in_ndtv, mod_en_in_livemint, mod_en_in_moneycontrol,
+    mod_en_in_timesofindia, mod_en_in_forbes, mod_en_reuters, mod_en_bbc, mod_en_guardian,
+    mod_en_bloomberg, mod_en_ap_news, mod_en_in_indianexpress,
+    mod_en_yahoo_news, mod_en_in_hindustan_times, mod_en_in_news18, mod_en_aljazeera,
+    mod_en_nhk_world, mod_en_arab_news, mod_en_gulf_news, mod_en_khaleej_times,
+    mod_en_the_national, mod_en_news24, mod_en_guardian_ng, mod_en_punch_ng, mod_en_allafrica,
+};
 use crate::document::{Document};
 use crate::utils::{make_unique_filename, save_to_disk_as_json};
 
@@ -207,6 +216,231 @@ pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverP
                                 method: mod_offline_docs::run_worker_thread,
                             }
                         );
+                        continue;
+                    },
+                    mod_en_in_thehindu::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_thehindu::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_ndtv::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_ndtv::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_livemint::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_livemint::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_moneycontrol::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_moneycontrol::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_timesofindia::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_timesofindia::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_forbes::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_forbes::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_reuters::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_reuters::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_bbc::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_bbc::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_guardian::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_guardian::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_bloomberg::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_bloomberg::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_ap_news::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_ap_news::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_indianexpress::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_indianexpress::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_yahoo_news::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_yahoo_news::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_hindustan_times::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_hindustan_times::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_news18::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_news18::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_aljazeera::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_aljazeera::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_nhk_world::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_nhk_world::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_arab_news::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_arab_news::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_gulf_news::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_gulf_news::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_khaleej_times::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_khaleej_times::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_the_national::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_the_national::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_news24::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_news24::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_guardian_ng::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_guardian_ng::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_punch_ng::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_punch_ng::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_allafrica::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_allafrica::run_worker_thread,
+                        });
                         continue;
                     },
                     // add additional retrievers here:

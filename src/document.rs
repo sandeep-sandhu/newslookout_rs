@@ -31,6 +31,12 @@ pub struct Document {
     pub text: String,
     /// Author or source of this document/news article
     pub source_author: String,
+    /// The name(s) of the source/publisher(s) of this document
+    pub source_name: Vec<String>,
+    /// Keywords extracted from this document
+    pub keywords: Vec<String>,
+    /// Industries relevant to this document
+    pub industries: Vec<String>,
     /// The intended recepients of this document/message or article
     pub recipients: String,
     /// The timestamp of the publication of this document, milliseconds since epoch 1970-01-01
@@ -70,6 +76,9 @@ impl Default for Document {
             referrer_text: "".to_string(),
             text: "".to_string(),
             source_author: "".to_string(),
+            source_name: Vec::new(),
+            keywords: Vec::new(),
+            industries: Vec::new(),
             recipients: "".to_string(),
             publish_date_ms: Utc::now().timestamp(),
             publish_date: "1970-01-01".to_string(),
@@ -82,6 +91,23 @@ impl Default for Document {
             generated_content: HashMap::new(),
             data_proc_flags: 0,
         }
+    }
+}
+
+impl Document {
+    /// Serialize the document into the target output JSON format with case-sensitive field names.
+    pub fn to_output_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "sourceName": self.source_name,
+            "pubdate": self.publish_date,
+            "text": self.text,
+            "title": self.title,
+            "URL": self.url,
+            "keywords": self.keywords,
+            "industries": self.industries,
+            "uniqueID": self.unique_id,
+            "module": self.module
+        })
     }
 }
 

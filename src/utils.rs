@@ -49,8 +49,8 @@ pub fn save_to_disk_as_json(received: &Document, json_file_path: &str) {
     debug!("Writing document from url: {:?}", received.url);
 
     info!("Writing document to file: {}", received.filename);
-    // serialize json to string
-    match serde_json::to_string_pretty(&received){
+    // serialize json to string using the output format
+    match serde_json::to_string_pretty(&received.to_output_json()){
         Ok(json_data) => {
             // persist to json
             match File::create(&json_file_path){
@@ -153,7 +153,7 @@ pub fn replace_invalid_filesystem_chars(input_text: &str) -> String {
 pub fn make_unique_filename(doc_struct: &document::Document, extension: &str) -> String{
     // limit name to given characters in length:
     let mut filename_prefix = replace_invalid_filesystem_chars(
-        format!("{}_{}_", doc_struct.module, doc_struct.section_name).as_str()
+        format!("{}_", doc_struct.module).as_str()
     );
     let mut hasher = std::hash::DefaultHasher::new();
     doc_struct.url.hash(&mut hasher);
@@ -485,13 +485,24 @@ pub fn word_count(text_str: &str) -> usize{
     return counter;
 }
 
+
 pub fn get_last_n_words(text_str: &str, count_n:usize) -> String {
-    // TODO: fix this since data is being changed (avoid removing newlines)
-    let last_n_words_rev: Vec<&str> = text_str.split_whitespace().rev().take(count_n).collect();
-    if count_n > last_n_words_rev.len(){
-        info!("get_last_n_words: extracted only {} words, it is less than required {} words.", last_n_words_rev.len(), count_n);
-    }
-    return last_n_words_rev.into_iter().rev().collect::<Vec<&str>>().join(" ");
+    // Split by whitespace while preserving newlines by replacing them with a special marker
+    let text_with_markers = text_str.replace('\n', "&^%$#@");
+    let mut words: Vec<&str> = text_with_markers.split_whitespace().collect();
+
+    // Take last n words, to use slicing from the end
+    let start_index = if count_n >= words.len() {
+        info!("get_last_n_words: extracted only {} words, it is less than required {} words.", words.len(), count_n);
+        0
+    } else {
+        words.len() - count_n
+    };
+
+    words.drain(..start_index);
+
+    // Join words and restore newlines
+    words.join(" ").replace("&^%$#@", "\n")
 }
 
 pub fn split_by_regex(input_text: String, regex_pattn: Regex) -> Vec<String> {
@@ -520,103 +531,161 @@ pub fn split_by_regex(input_text: String, regex_pattn: Regex) -> Vec<String> {
     return text_parts_stage1;
 }
 
-pub fn split_by_word_count(text: &str, max_words_per_split: usize, previous_overlap: usize, some_regex: Option<Regex>) -> Vec<String> {
+/// 
+/// 
+/// # Arguments 
+/// 
+/// * `text`: 
+/// * `max_words_per_split`: 
+/// * `previous_overlap`: 
+/// * `some_regex`: 
+/// 
+/// returns: Vec<String, Global> 
+/// 
+/// # Examples 
+/// 
+/// ```
+/// 
+/// ```
+pub fn split_by_word_count(text: &str,
+                           max_words_per_split: usize,
+                           previous_overlap: usize,
+                           some_regex: Option<Regex>) -> Vec<String> {
+    // Step 1: Initial text splitting
+    let text_parts_stage1 = split_initial_text(text, some_regex);
 
-    let mut buffer_wc:usize = 0;
-    let mut buffer = String::new();
-    let mut overlap_buffer = String::from("");
-    let mut overlap_buffer_wc:usize = 0;
-    let mut previous_overlap_text = String::from("");
-    let mut text_parts_stage1: Vec<String> = text.split("\n\n").map(|x| x.to_string() ).collect::<Vec<String>>();
+    // Step 2: Process text blocks with word count limits
+    let mut result = Vec::new();
+    let mut buffer = TextBuffer::new(max_words_per_split);
+    let mut overlap = OverlapTracker::new(previous_overlap);
 
-    //if some_regex is not None, then:
-    if let Some(initial_split_regex) = some_regex {
-        // first split by regex:
-        let text_parts_init: Vec<String> = split_by_regex(text.to_string(), initial_split_regex);
-        debug!("Regex initial split into #{} parts", text_parts_init.len());
-        // then split by double lines, those parts that are prceeding regex:
-        let mut flag_is_first = true;
-        for part in text_parts_init{
-            if flag_is_first == true {
-                // split only the first part by double lines, put into vector:
-                debug!("___Splitting first part: {}", part);
-                let splits = part.split("\n\n").map(|x| x.to_string() ).collect::<Vec<String>>();
-                text_parts_stage1 = splits.clone();
-                debug!("Resulting splits: {:?}", text_parts_stage1);
-                flag_is_first = false;
-            }else{
-                // all other parts, append to end of vector
-                debug!("___Adding remaining parts: {}", part);
-                text_parts_stage1.push(part);
-            }
+    for text_block in text_parts_stage1 {
+        process_text_block(&mut result, &mut buffer, &mut overlap, &text_block);
+    }
+
+    // Add remaining buffer content if any
+    if !buffer.is_empty() {
+        append_with_last_element(&mut result, buffer.content);
+    }
+
+    result
+}
+
+struct TextBuffer {
+    content: String,
+    word_count: usize,
+    max_words: usize,
+    overlap_content: String,
+    overlap_word_count: usize,
+}
+
+impl TextBuffer {
+    fn new(max_words: usize) -> Self {
+        Self {
+            content: String::new(),
+            word_count: 0,
+            max_words,
+            overlap_content: String::new(),
+            overlap_word_count: 0,
         }
     }
 
-    let mut text_parts_stage2: Vec<String> = Vec::new();
-    // merge these split parts based on word count limit:
-    for text_block in text_parts_stage1 {
-        let this_blocks_word_count:usize = word_count(text_block.as_str());
-        if (buffer_wc + previous_overlap >= max_words_per_split) &
-            (this_blocks_word_count + buffer_wc < max_words_per_split) {
-            // if so, then start keeping this and following blocks as overlap
-            overlap_buffer = format!("{} {}", overlap_buffer, text_block);
-            overlap_buffer_wc += this_blocks_word_count;
+    fn is_empty(&self) -> bool {
+        self.word_count == 0
+    }
+
+    fn would_exceed_limit(&self, additional_words: usize) -> bool {
+        self.word_count + additional_words > self.max_words
+    }
+
+    fn append_text(&mut self, text: &str, word_count: usize) {
+        if self.is_empty() {
+            self.content = text.to_string();
+        } else {
+            self.content = format!("{}\n\n{}", self.content, text);
         }
-        // check if buffer_wc + this_wc > max_words, if so put buffer in vector
-        if (this_blocks_word_count + buffer_wc) > max_words_per_split {
-            // add the buffer to vector
-            text_parts_stage2.push(buffer);
-            // empty buffer and add current text block to buffer:
-            // buffer.clear(); // not required as its implicit
-            // add overlap_buffer
-            if overlap_buffer_wc > 0{
-                buffer = format!("{} {} {}", overlap_buffer, previous_overlap_text, text_block);
-                buffer_wc = overlap_buffer_wc + word_count(previous_overlap_text.as_str()) + this_blocks_word_count;
-                overlap_buffer.clear();
-                overlap_buffer_wc = 0;
-            }else{
-                buffer = format!("{} {}", previous_overlap_text, text_block);
-                buffer_wc = word_count(previous_overlap_text.as_str()) + this_blocks_word_count;
-            }
-        } else{
-            // append current text block to buffer:
-            if buffer_wc > 0 {
-                buffer = format!("{}\n\n{}", buffer, text_block);
-                // increment buffer word count:
-                buffer_wc += this_blocks_word_count;
-            }else{
-                // for first iteration where buffer_wc = 0
-                // add overlap_buffer
-                if overlap_buffer_wc > 0 {
-                    buffer = format!("{} {} {}", overlap_buffer, previous_overlap_text, text_block);
-                    // increment buffer word count:
-                    buffer_wc = buffer_wc + overlap_buffer_wc + word_count(previous_overlap_text.as_str()) + this_blocks_word_count;
-                    overlap_buffer.clear();
-                    overlap_buffer_wc = 0;
-                }else {
-                    buffer = format!("{} {}", previous_overlap_text, text_block);
-                    // increment buffer word count:
-                    buffer_wc = buffer_wc + word_count(previous_overlap_text.as_str()) + this_blocks_word_count;
+        self.word_count += word_count;
+    }
+
+    fn start_new_buffer(&mut self, text: &str, count_of_words: usize, overlap_text: &str) {
+        let prefix = if self.overlap_word_count > 0 {
+            format!("{} {} ", self.overlap_content, overlap_text)
+        } else {
+            format!("{} ", overlap_text)
+        };
+
+        self.content = format!("{}{}", prefix, text);
+        let overlap_word_count = word_count(overlap_text);
+        self.word_count = self.overlap_word_count + count_of_words + overlap_word_count;
+
+        self.overlap_content.clear();
+        self.overlap_word_count = 0;
+    }
+}
+
+struct OverlapTracker {
+    size: usize,
+    previous_text: String,
+}
+
+impl OverlapTracker {
+    fn new(size: usize) -> Self {
+        Self {
+            size,
+            previous_text: String::new(),
+        }
+    }
+
+    fn update(&mut self, text_block: &str) {
+        if self.size > 0 {
+            self.previous_text = if word_count(text_block) < self.size {
+                text_block.to_string()
+            } else {
+                get_last_n_words(text_block, self.size)
+            };
+        }
+    }
+}
+
+fn split_initial_text(text: &str, regex_pattern: Option<Regex>) -> Vec<String> {
+    let mut parts = match regex_pattern {
+        Some(regex) => {
+            let text_parts = split_by_regex(text.to_string(), regex);
+            debug!("Regex initial split into #{} parts", text_parts.len());
+
+            let mut result = Vec::new();
+            let mut is_first = true;
+
+            for part in text_parts {
+                if is_first {
+                    debug!("___Splitting first part: {}", part);
+                    result.extend(part.split("\n\n").map(ToString::to_string));
+                    is_first = false;
+                } else {
+                    debug!("___Adding remaining parts: {}", part);
+                    result.push(part);
                 }
             }
-        }
-        if previous_overlap > 0 {
-            if this_blocks_word_count < previous_overlap{
-                previous_overlap_text = text_block.to_string();
-            }else {
-                previous_overlap_text = get_last_n_words(text_block.as_str(), previous_overlap);
-            }
-        };
-    }
-    // add remainder into array of text parts:
-    if buffer_wc > 0 {
-        // add remainder into previously added part in vector: text_parts_stage2
-        append_with_last_element(&mut text_parts_stage2, buffer);
-        // add as the last element of array
-        // text_parts_stage2.push(buffer);
+            result
+        },
+        None => text.split("\n\n").map(ToString::to_string).collect()
+    };
+    parts
+}
+
+
+
+fn process_text_block(result: &mut Vec<String>, buffer: &mut TextBuffer, overlap: &mut OverlapTracker, text_block: &str) {
+    let block_word_count = word_count(text_block);
+
+    if buffer.would_exceed_limit(block_word_count) {
+        result.push(buffer.content.clone());
+        buffer.start_new_buffer(text_block, block_word_count, &overlap.previous_text);
+    } else {
+        buffer.append_text(text_block, block_word_count);
     }
 
-    return text_parts_stage2;
+    overlap.update(text_block);
 }
 
 /// Appends the given string to the last element of a vector of strings.
@@ -691,6 +760,7 @@ pub fn check_and_fix_url(url_to_check: &str, base_url: &str) -> Option<String> {
 // These unit tests verify the functions in this module.
 #[cfg(test)]
 mod tests {
+    use log::debug;
     use regex::Regex;
     use crate::{document, utils};
     use crate::document::Document;
@@ -725,7 +795,7 @@ mod tests {
     #[test]
     fn test_split_by_word_count_with_overlap(){
         let para2 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
-        let para2_expected_answer = vec![" The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1  1  lazy\n\n dog.\n\n"];
+        let para2_expected_answer = vec!["The\n\n quick\n\n brown", "brown  fox\n\n jumped", "jumped  over\n\n the\n\n 1  1  lazy\n\n dog.\n\n"];
         let result2 = utils::split_by_word_count(para2, 3, 1, None);
         // debug!("Word split result = {:?}", result2);
         assert_eq!(result2, para2_expected_answer, "Did not split text into parts by word limit and overlap");
@@ -735,20 +805,24 @@ mod tests {
     fn test_split_by_word_count_with_overlap_long(){
         let para3 = "one \n\n two \n\n three \n\n four \n\n five \n\n six \n\n seven \n\n eight \n\n nine \n\n ten \n\n eleven \n\n twelve \n\n thirteen \n\n fourteen \n\n fifteen \n\n";
         // test for overlap inclusion:
-        let para3_expected_answer = vec![" one \n\n two \n\n three \n\n four \n\n five ", "  four   five   six \n\n seven \n\n eight ", "  seven   eight   nine \n\n ten \n\n eleven ", "  ten   eleven   twelve \n\n thirteen \n\n fourteen    thirteen   fourteen   fifteen \n\n"];
+        let para3_expected_answer = vec!["one \n\n two \n\n three \n\n four \n\n five ", " five   six \n\n seven \n\n eight \n\n nine ", " nine   ten \n\n eleven \n\n twelve \n\n thirteen   thirteen   fourteen \n\n fifteen \n\n"];
         let result3 = utils::split_by_word_count(para3, 5, 2, None);
-        // debug!("Word split result = {:?}", result3);
+        debug!("Word split result = {:?}", result3);
         assert_eq!(result3, para3_expected_answer, "Did not split text into parts correctly by word limit and overlap");
     }
 
     #[test]
     fn test_get_last_n_words(){
         let para1 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
-        let para1_expected_answer = "lazy dog.";
-        assert_eq!(get_last_n_words(para1,2), para1_expected_answer, "Did not get last n words");
+        let para1_expected_answer = "lazy\n\n dog.\n\n";
+        let result_last2_words = get_last_n_words(para1, 2);
+        debug!("Get Last 2 Words result = {:?}",result_last2_words);
+        assert_eq!(result_last2_words, para1_expected_answer, "Did not get last n words");
         let para2 = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
-        let para2_expected_answer = "The quick brown fox jumped over the 1 lazy dog.";
-        assert_eq!(get_last_n_words(para2,12), para2_expected_answer, "Did not get last n words");
+        let para2_expected_answer = "The\n\n quick\n\n brown\n\n fox\n\n jumped\n\n over\n\n the\n\n 1\n\n lazy\n\n dog.\n\n";
+        let result_last12_words = get_last_n_words(para2, 12);
+        debug!("Get Last 12 Words result = {:?}",result_last12_words);
+        assert_eq!(result_last12_words, para2_expected_answer, "Did not get last n words");
     }
 
     #[test]

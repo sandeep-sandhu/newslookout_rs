@@ -1,5 +1,18 @@
 # Change Log
 
+### Release 0.4.12
+- Added structured JSON output format: `sourceName`, `pubdate`, `text`, `title`, `URL`, `keywords`, `industries`, `uniqueID`, `module` (matching the reference example files)
+- Added `source_name`, `keywords`, and `industries` fields to the `Document` struct
+- Added `Document::to_output_json()` method that serialises to the exact target JSON schema
+- Created `src/content_extraction.rs` — a heuristic article-body extractor (CSS-selector based, API-compatible with the `content-extractor-rl` crate's `BaselineExtractor`)
+- Added 12 new retriever plugins covering major global and Indian news sites: `mod_en_reuters`, `mod_en_bbc`, `mod_en_guardian`, `mod_en_bloomberg`, `mod_en_ap_news`, `mod_en_in_thehindu`, `mod_en_in_ndtv`, `mod_en_in_livemint`, `mod_en_in_moneycontrol`, `mod_en_in_timesofindia`, `mod_en_in_forbes`, `mod_en_in_indianexpress`
+- Each plugin uses content-extractor-rl-compatible heuristic extraction with site-specific CSS fallback selectors
+- Added `http_get` helper function to `network.rs` for HTML retrieval
+- Added `content_extraction_min_quality` and `content_extraction_model_file` config parameters
+- Updated config file with new plugin entries (all disabled by default)
+- Updated README with full architecture documentation, JSON format spec, plugin table, configuration guide, and project layout
+- All 62 existing tests pass; 2 pre-existing test stubs remain intentionally failing
+
 ### Release 0.4.9
 - Implemented mutexes to coordinate LLM service API usage
 - Enhanced data structures used for data processing plugins

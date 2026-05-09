@@ -20,6 +20,7 @@ use newslookout::utils::{get_text_using_ocr, word_count, get_urls_from_database,
 use config::Config;
 use newslookout::cfg::read_config_from_file;
 use newslookout::network::{http_get, make_http_client, read_network_parameters, NetworkParameters};
+use newslookout::web_api::{create_status_tracker, start_web_api};
 use rand::{Rng, RngExt};
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -167,10 +168,21 @@ fn run_pipeline(){
     data_proc_plugins.push(changes_from_previous);
 
     info!("Loaded {} retriever and {} processing plugins to run.", retriever_plugins.len(), data_proc_plugins.len());
+
+    // Start web API status server if enabled in config
+    let status_tracker = create_status_tracker();
+    let web_api_enabled = configref.get_bool("web_api_enabled").unwrap_or(false);
+    if web_api_enabled {
+        let host = configref.get_string("web_api_host").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let port = configref.get_int("web_api_port").unwrap_or(8080) as u16;
+        start_web_api(&host, port, status_tracker.clone());
+    }
+
     let docs_retrieved = pipeline::start_data_pipeline(
         retriever_plugins,
         data_proc_plugins,
-        configref.clone()
+        configref.clone(),
+        Some(status_tracker),
     );
 
     // use this collection of retrieved documents information for any further custom processing -> docs_retrieved
@@ -398,6 +410,7 @@ fn run_rbi_scanner(tx: Sender<Document>, cfg: Arc<config::Config>){
         info!("Starting custom plugin - rbi_new.");
         let database_filename = get_cfg!("completed_urls_datafile", &cfg, "hzn_scan_urls.db");
         let data_folder = get_cfg!("data_dir", &cfg, "data");
+        let pdf_folder = get_cfg!("pdf_data_dir", &cfg, "data/master_data");
 
         let mut counter = 0;
         let mut netw_params = read_network_parameters(&cfg);
@@ -450,6 +463,7 @@ fn run_rbi_scanner(tx: Sender<Document>, cfg: Arc<config::Config>){
                     &client,
                     &netw_params,
                     data_folder.as_str(),
+                    pdf_folder.as_str(),
                     "rbi_new",
                     "https://website.rbi.org.in/"
                 );
@@ -574,6 +588,7 @@ fn get_docs_from_listing_page(
     client: &reqwest::blocking::Client,
     netw_params: &NetworkParameters,
     data_folder: &str,
+    pdf_folder: &str,
     module_name: &str,
     base_url: &str
 ) -> usize
@@ -621,7 +636,7 @@ fn get_docs_from_listing_page(
         );
 
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
-            load_pdf_content(&mut this_new_doc, &client, data_folder);
+            load_pdf_content(&mut this_new_doc, &client, pdf_folder);
         }));
         if result.is_err() {
             if let Err(errvar) = result {
@@ -1117,6 +1132,7 @@ fn run_sebi_scanner(tx: Sender<Document>, cfg: Arc<config::Config>){
         info!("{}: Starting plugin.", PLUGIN_NAME);
         let database_filename = get_cfg!("completed_urls_datafile", &cfg, "hzn_scan_urls.db");
         let data_folder = get_cfg!("data_dir", &cfg, "data");
+        let pdf_folder = get_cfg!("pdf_data_dir", &cfg, "data/master_data");
 
         let mut counter = 0;
         let mut netw_params = read_network_parameters(&cfg);
@@ -1164,7 +1180,8 @@ fn run_sebi_scanner(tx: Sender<Document>, cfg: Arc<config::Config>){
                     &mut already_retrieved_urls,
                     &client,
                     &netw_params,
-                    data_folder.as_str()
+                    data_folder.as_str(),
+                    pdf_folder.as_str()
                 );
 
                 counter += count_of_docs;
@@ -1232,7 +1249,8 @@ pub fn sebi_retrieve_docs (
     already_retrieved_urls: &mut HashSet<String>,
     client: &reqwest::blocking::Client,
     netw_params: &NetworkParameters,
-    data_folder: &str) -> usize
+    data_folder: &str,
+    pdf_folder: &str) -> usize
 {
     let mut counter: usize=0;
 
@@ -1278,7 +1296,7 @@ pub fn sebi_retrieve_docs (
         );
 
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
-            load_pdf_content(&mut this_new_doc, &client, data_folder);
+            load_pdf_content(&mut this_new_doc, &client, pdf_folder);
         }));
         if result.is_err() {
             if let Err(errvar) = result {
@@ -1380,6 +1398,7 @@ fn run_irdai_scanner(tx: Sender<Document>, cfg: Arc<config::Config>){
     if enabled == true {
         let database_filename = get_cfg!("completed_urls_datafile", &cfg, "hzn_scan_urls.db");
         let data_folder = get_cfg!("data_dir", &cfg, "data");
+        let pdf_folder = get_cfg!("pdf_data_dir", &cfg, "data/master_data");
 
         let mut counter = 0;
         let mut netw_params = read_network_parameters(&cfg);
@@ -1430,6 +1449,7 @@ fn run_irdai_scanner(tx: Sender<Document>, cfg: Arc<config::Config>){
                     &client,
                     &netw_params,
                     data_folder.as_str(),
+                    pdf_folder.as_str(),
                     "irdai",
                     "https://irdai.gov.in/"
                 );

@@ -13,7 +13,7 @@ use rand::{Rng, RngExt};
 use regex::Regex;
 use scraper::ElementRef;
 use crate::{document, get_plugin_cfg};
-use crate::cfg::{get_data_folder, get_database_filename};
+use crate::cfg::{get_data_folder, get_database_filename, get_pdf_data_folder};
 use crate::document::Document;
 use crate::network::{NetworkParameters, http_get, make_http_client, read_network_parameters};
 use crate::utils::{check_and_fix_url, clean_text, get_text_from_element, get_urls_from_database, load_pdf_content, make_unique_filename, to_local_datetime};
@@ -38,6 +38,8 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
     let database_filename = get_database_filename(&app_config);
     let data_folder = get_data_folder(&app_config);
     let data_folder_str = data_folder.to_str().unwrap_or("data").to_string();
+    let pdf_folder = get_pdf_data_folder(&app_config);
+    let pdf_folder_str = pdf_folder.to_str().unwrap_or("data/master_data").to_string();
 
     let mut counter = 0;
     let mut netw_params = read_network_parameters(&app_config);
@@ -115,7 +117,8 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
                 &mut already_retrieved_urls,
                 &client,
                 &netw_params,
-                data_folder_str.as_str()
+                data_folder_str.as_str(),
+                pdf_folder_str.as_str()
             );
             counter += count_of_docs;
         }
@@ -146,7 +149,8 @@ pub fn get_docs_from_listing_page(
     already_retrieved_urls: &mut HashSet<String>,
     client: &reqwest::blocking::Client,
     netw_params: &NetworkParameters,
-    data_folder: &str) -> usize
+    data_folder: &str,
+    pdf_folder: &str) -> usize
 {
     let mut counter: usize = 0;
 
@@ -188,7 +192,7 @@ pub fn get_docs_from_listing_page(
         );
 
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
-            load_pdf_content(&mut this_new_doc, &client, data_folder);
+            load_pdf_content(&mut this_new_doc, &client, pdf_folder);
         }));
         if result.is_err() {
             if let Err(errvar) = result {

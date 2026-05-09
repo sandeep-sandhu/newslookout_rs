@@ -223,7 +223,6 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use ::config::Config;
 use log::{error, info, LevelFilter};
-use log4rs::append::file::FileAppender;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
@@ -306,10 +305,10 @@ pub mod network;
 pub mod utils;
 pub mod llm;
 pub mod document;
-pub mod html_extract;
 pub mod pipeline;
 pub mod cfg;
 pub mod content_extraction;
+pub mod web_api;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -347,7 +346,8 @@ pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
     let docs_retrieved = start_data_pipeline(
         retriever_plugins,
         data_proc_plugins,
-        configref.clone()
+        configref.clone(),
+        None,
     );
 
     log::info!("Data pipeline completed processing {} documents.", docs_retrieved.len());
@@ -389,49 +389,46 @@ pub fn init_logging(config: Arc<config::Config>){
             println!("Logging to file: {:?}", logfile);
 
             // read parameter from config file : max_logfile_size
-            let mut size_limit =10 * 1024 * 1024; // 10 MB
+            let mut size_limit: i64 = 10 * 1024 * 1024; // 10 MB
             match config.get_int("max_logfile_size") {
                 Ok(max_logfile_size) => size_limit = max_logfile_size,
-                Err(e) => error!("When reading max logfile size: {}", e)
+                Err(_) => {}
             }
-            // TODO: implement log rotation
-            // logfile.push_str("{}");
-            // let window_size = 10;
-            // let fixed_window_roller =
-            //     FixedWindowRoller::builder().build(logfile.as_str(), window_size).unwrap();
-            // let size_trigger = SizeTrigger::new(size_limit as u64);
-            // let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
-            // let config = log4rs::config::Config::builder().appender(
-            //         Appender::builder()
-            //             .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
-            //             .build(
-            //                 "logfile",
-            //                 Box::new(
-            //                     RollingFileAppender::builder()
-            //                         .encoder(Box::new(PatternEncoder::new("{d} {l}::{m}{n}")))
-            //                         .build(logfile.clone(), Box::new(compound_policy)),
-            //                 ),
-            //             ),
-            //     )
-            //     .build(
-            //         Root::builder()
-            //             .appender("logfile")
-            //             .build(LevelFilter::Info),
-            //     ).expect("Valid log configuration.");
+            let mut backup_count: u32 = 10;
+            match config.get_int("logfile_backup_count") {
+                Ok(count) => backup_count = count as u32,
+                Err(_) => {}
+            }
 
-            let logfile = FileAppender::builder()
+            // rolling file appender: base = logfile, backup pattern = logfile.{N}
+            let roller_pattern = format!("{}.{{}}", logfile);
+            let fixed_window_roller = FixedWindowRoller::builder()
+                .build(roller_pattern.as_str(), backup_count)
+                .expect("Could not create log file roller");
+            let size_trigger = SizeTrigger::new(size_limit as u64);
+            let compound_policy = CompoundPolicy::new(
+                Box::new(size_trigger),
+                Box::new(fixed_window_roller)
+            );
+            let rolling_appender = RollingFileAppender::builder()
                 .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)(local)} {i} [{l}] - {m}{n}")))
-                .build(logfile.clone())
-                .expect("Cound not init log file appender.");
+                .build(logfile.clone(), Box::new(compound_policy))
+                .expect("Could not create rolling file appender");
 
             let logconfig = log4rs::config::Config::builder()
-                .appender(Appender::builder().build("logfile", Box::new(logfile)))
-                .build(Root::builder()
-                    .appender("logfile")
-                    .build(app_loglevel))
-                .expect("Cound not build a logging config.");
+                .appender(
+                    Appender::builder()
+                        .filter(Box::new(ThresholdFilter::new(app_loglevel)))
+                        .build("logfile", Box::new(rolling_appender))
+                )
+                .build(
+                    Root::builder()
+                        .appender("logfile")
+                        .build(app_loglevel)
+                )
+                .expect("Could not build logging config.");
 
-            log4rs::init_config(logconfig).expect("Cound not initialize logging.");
+            log4rs::init_config(logconfig).expect("Could not initialize logging.");
             log::info!("Started application.");
         }
         Err(e) => {

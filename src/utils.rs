@@ -263,6 +263,16 @@ pub fn get_urls_from_database(sqlite_filename: &str, module_name: &str) -> colle
     let mut urls_already_retrieved: collections::HashSet<String> = collections::HashSet::new();
         match rusqlite::Connection::open(sqlite_filename) {
             Ok(conn) => {
+                // ensure the table exists (first run or new db file):
+                let _ = conn.execute("CREATE TABLE IF NOT EXISTS completed_urls (
+                                                url varchar(256) not null primary key,
+                                                plugin varchar(50) not null,
+                                                pubdate varchar(10),
+                                                section_name varchar(100),
+                                                title varchar(100),
+                                                unique_id varchar(256),
+                                                filename varchar(256)
+                                             )", []);
                 // filter and return results for specified module only:
                 let sql_string = format!("select distinct url from completed_urls where plugin = '{}'", module_name);
                 match conn.prepare(sql_string.as_str()){
@@ -362,18 +372,18 @@ pub fn insert_urls_info_to_database(config: Arc<config::Config>, processed_docin
 pub fn load_pdf_content(
     mut input_doc: &mut Document,
     client: &reqwest::blocking::Client,
-    data_folder: &str)
+    pdf_folder: &str)
 {
     if input_doc.pdf_url.len() > 4 {
         let pdf_filename = make_unique_filename(&input_doc, "pdf");
-        // save to file in data_folder, make full path by joining folder to unique filename
-        let pdf_file_path = Path::new(data_folder).join(&pdf_filename);
+        // build full path under the PDF-specific folder
+        let pdf_file_path = Path::new(pdf_folder).join(&pdf_filename);
         // check if pdf already exists, if so, do not retrieve again:
         if Path::exists(pdf_file_path.as_path()){
             info!("Not retrieving PDF since it already exists: {:?}", pdf_file_path);
             if input_doc.text.len() > 1 {
                 let txt_filename = make_unique_filename(&input_doc, "txt");
-                let txt_file_path = Path::new(data_folder).join(&txt_filename);
+                let txt_file_path = Path::new(pdf_folder).join(&txt_filename);
                 let result = panic::catch_unwind(AssertUnwindSafe(|| {
                     input_doc.text = extract_text_from_pdf(pdf_file_path, txt_file_path);
                 }));
@@ -385,8 +395,16 @@ pub fn load_pdf_content(
             }
         }else {
             // get pdf content, and its plaintext output
-            let (pdf_data, plaintext) = retrieve_pdf_content(&input_doc.pdf_url, client);
+            let (pdf_data, plaintext) = retrieve_pdf_content(
+                &input_doc.pdf_url, client, &input_doc.module, &input_doc.url
+            );
             input_doc.text = plaintext;
+            // Validate PDF magic bytes before persisting to disk
+            if !pdf_data.is_empty() && !pdf_data.starts_with(b"%PDF") {
+                error!("[{}] Content from '{}' is not a valid PDF ({} bytes, bad magic bytes). Discarding.",
+                    input_doc.module, input_doc.pdf_url, pdf_data.len());
+                return;
+            }
             debug!("From url {}: retrieved pdf file from link: {} of length {} bytes",
                 input_doc.url, input_doc.pdf_url, pdf_data.len()
             );
@@ -452,15 +470,15 @@ pub fn extract_text_from_pdf(pdf_file_path: PathBuf, txt_file_path: PathBuf) -> 
     String::from("")
 }
 
-pub fn retrieve_pdf_content(pdf_url: &str, client: &reqwest::blocking::Client) -> (bytes::Bytes, String) {
+pub fn retrieve_pdf_content(pdf_url: &str, client: &reqwest::blocking::Client, plugin_name: &str, source_url: &str) -> (bytes::Bytes, String) {
     let pdf_data = network::http_get_binary(&pdf_url.to_string(), client);
-    // convert to text, populate text field
     match extract_text_from_mem(pdf_data.as_bytes()) {
         Result::Ok(plaintext) => {
             return (pdf_data, plaintext);
         },
         Err(outerr) => {
-            error!("When converting pdf content into text: {}", outerr);
+            error!("[{}] When converting PDF into text, url='{}', source='{}': {}",
+                plugin_name, pdf_url, source_url, outerr);
             return (pdf_data, String::new());
         }
     }

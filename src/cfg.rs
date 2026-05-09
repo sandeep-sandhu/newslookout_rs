@@ -2,8 +2,9 @@
 
 use std::cmp::max;
 use config::{Config, Environment, FileFormat};
-use log::error;
+use log::{error, info};
 use std::env;
+use std::fs;
 use std::sync::{Arc, Mutex};
 
 /// Retrieve the queried parameter from this plugin's configuration
@@ -93,6 +94,26 @@ pub fn get_data_folder(config: &Config) -> std::path::PathBuf {
     // return present working directory
     let path_currdir = env::current_dir().expect("give proper argument");
     return path_currdir;
+}
+
+/// Returns the folder where PDF files are saved.
+/// Reads `pdf_data_dir` from config; falls back to `data_dir`.
+/// Creates the directory if it does not already exist.
+pub fn get_pdf_data_folder(config: &Config) -> std::path::PathBuf {
+    let dirname = config.get_string("pdf_data_dir")
+        .or_else(|_| config.get_string("data_dir"))
+        .unwrap_or_else(|_| "data/files".to_string());
+    let dirpath = std::path::PathBuf::from(&dirname);
+    if !dirpath.is_dir() {
+        match fs::create_dir_all(&dirpath) {
+            Ok(_) => info!("Created PDF data directory: {}", dirname),
+            Err(e) => {
+                error!("Could not create PDF data directory '{}': {}", dirname, e);
+                return env::current_dir().expect("Could not get current directory");
+            }
+        }
+    }
+    dirpath
 }
 
 pub fn get_database_filename(config: &Config) -> String {

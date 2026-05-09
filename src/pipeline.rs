@@ -42,6 +42,7 @@ use crate::plugins::{
 };
 use crate::document::{Document};
 use crate::utils::{make_unique_filename, save_to_disk_as_json};
+use crate::web_api::SharedStatus;
 
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -954,8 +955,20 @@ pub fn data_processing_pipeline(
 pub fn start_data_pipeline(
     retriever_plugins: Vec<RetrieverPlugin>,
     data_proc_plugins: BinaryHeap<DataProcPlugin>,
-    app_config: Arc<config::Config>
+    app_config: Arc<config::Config>,
+    status_tracker: Option<SharedStatus>,
 ) -> Vec<Document> {
+
+    // record counts in shared status before kicking off threads
+    if let Some(ref st) = status_tracker {
+        if let Ok(mut s) = st.lock() {
+            s.is_running = true;
+            s.retrievers_total = retriever_plugins.len();
+            s.retrievers_enabled = retriever_plugins.iter().filter(|p| p.enabled).count();
+            s.data_processors_total = data_proc_plugins.len();
+            s.data_processors_enabled = data_proc_plugins.iter().filter(|p| p.enabled).count();
+        }
+    }
 
     // start the inter-thread message queues
     let (retrieve_thread_tx, data_proc_pipeline_rx) = mpsc::channel();
@@ -991,6 +1004,12 @@ pub fn start_data_pipeline(
 
     for processed_docinfo in processed_data_rx {
         all_docs_processed.push(processed_docinfo);
+        // update shared status counter
+        if let Some(ref st) = status_tracker {
+            if let Ok(mut s) = st.lock() {
+                s.docs_processed = all_docs_processed.len();
+            }
+        }
         // write to database after every 20 urls:
         if all_docs_processed.len() % 20 == 0 {
             let current_idx = all_docs_processed.len();
@@ -1007,9 +1026,15 @@ pub fn start_data_pipeline(
         }
     }
     let current_idx = all_docs_processed.len();
-    // write remaining urls, and then get count of successfully written to compare with list given:
     if utils::insert_urls_info_to_database(app_config, &all_docs_processed[last_written..current_idx]) < (current_idx - last_written) {
         error!("Could not write all of the retrieved urls into database table.");
+    }
+    // mark pipeline as finished
+    if let Some(ref st) = status_tracker {
+        if let Ok(mut s) = st.lock() {
+            s.is_running = false;
+            s.docs_processed = all_docs_processed.len();
+        }
     }
     return all_docs_processed;
 }

@@ -26,8 +26,8 @@ use {
 use crate::{document, network, utils};
 use crate::document::{Document};
 use crate::get_plugin_cfg;
-use crate::cfg::{get_data_folder, get_database_filename};
-use crate::html_extract::{extract_text_from_html, extract_doc_from_row};
+use crate::cfg::{get_data_folder, get_database_filename, get_pdf_data_folder};
+use crate::content_extraction::{extract_text_from_html, extract_doc_from_row};
 use crate::network::{read_network_parameters, make_http_client, NetworkParameters};
 use crate::utils::{clean_text, get_text_from_element, get_urls_from_database, make_unique_filename, to_local_datetime, retrieve_pdf_content, extract_text_from_pdf, load_pdf_content, check_and_fix_url};
 
@@ -92,20 +92,23 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
         ("https://website.rbi.org.in/web/rbi/publications/articles?category=24927873", "Monetary Policy Report"),
     ];
 
-    match get_data_folder(&app_config).to_str(){
-        Some(data_folder_name) => {
+    let data_folder = get_data_folder(&app_config);
+    let pdf_folder = get_pdf_data_folder(&app_config);
+    match (data_folder.to_str(), pdf_folder.to_str()) {
+        (Some(data_folder_name), Some(pdf_folder_name)) => {
             let _count_docs = retrieve_data(
                 starter_urls,
                 database_filename.as_str(),
                 &client,
                 tx,
                 data_folder_name,
+                pdf_folder_name,
                 netw_params,
                 maxitemsinpage,
                 maxpages
             );
         },
-        None => {
+        _ => {
             error!("Unable to determine path to store data files.");
         }
     };
@@ -132,6 +135,7 @@ fn retrieve_data(
     client: &reqwest::blocking::Client,
     tx: Sender<document::Document>,
     data_folder: &str,
+    pdf_folder: &str,
     netw_params: NetworkParameters,
     maxitemsinpage: u64,
     max_pages: u64
@@ -162,7 +166,8 @@ fn retrieve_data(
                 &mut already_retrieved_urls,
                 client,
                 &netw_params,
-                data_folder
+                data_folder,
+                pdf_folder
             );
             counter += count_of_docs;
 
@@ -208,7 +213,8 @@ pub fn get_docs_from_listing_page(
     already_retrieved_urls: &mut HashSet<String>,
     client: &reqwest::blocking::Client,
     netw_params: &NetworkParameters,
-    data_folder: &str) -> usize
+    data_folder: &str,
+    pdf_folder: &str) -> usize
 {
     let mut counter: usize=0;
 
@@ -261,7 +267,7 @@ pub fn get_docs_from_listing_page(
             json_file_path.as_path().to_str().expect("Not able to convert path to string")
         );
 
-        load_pdf_content(&mut this_new_doc, &client, data_folder);
+        load_pdf_content(&mut this_new_doc, &client, pdf_folder);
 
         // perform any custom processing of the data in the document:
         custom_data_processing(&mut this_new_doc);

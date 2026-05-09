@@ -64,15 +64,17 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
     info!("{}: Completed persisting {} documents to {}.", PLUGIN_NAME, counter, destination);
 }
 
-/// Generates the JSON entry filename: {module}_{unique_id}.json
-/// Falls back to a URL hash when unique_id is empty.
+/// Generates the JSON entry filename: {module}_{unique_id}_{url_hash}.json
+/// Always includes a URL hash suffix so entries are globally unique even when
+/// two articles share the same unique_id (e.g. same URL slug from different pages).
 fn make_json_entry_name(doc: &document::Document) -> String {
+    let mut hasher = std::hash::DefaultHasher::new();
+    doc.url.hash(&mut hasher);
+    let url_hash = hasher.finish();
     if !doc.unique_id.is_empty() {
-        format!("{}_{}.json", doc.module, doc.unique_id)
+        format!("{}_{}_{:x}.json", doc.module, doc.unique_id, url_hash)
     } else {
-        let mut hasher = std::hash::DefaultHasher::new();
-        doc.url.hash(&mut hasher);
-        format!("{}_{}.json", doc.module, hasher.finish())
+        format!("{}_{:x}.json", doc.module, url_hash)
     }
 }
 

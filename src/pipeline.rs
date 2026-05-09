@@ -30,6 +30,15 @@ use crate::plugins::{
     mod_en_yahoo_news, mod_en_in_hindustan_times, mod_en_in_news18, mod_en_aljazeera,
     mod_en_nhk_world, mod_en_arab_news, mod_en_gulf_news, mod_en_khaleej_times,
     mod_en_the_national, mod_en_news24, mod_en_guardian_ng, mod_en_punch_ng, mod_en_allafrica,
+    mod_en_cnn, mod_en_foxnews, mod_en_usatoday,
+    mod_en_cnbc, mod_en_marketwatch, mod_en_business_insider,
+    mod_en_washingtonpost, mod_en_latimes, mod_en_chicago_tribune,
+    mod_en_fortune, mod_en_techcrunch, mod_en_wired,
+    mod_en_theverge, mod_en_arstechnica, mod_en_cnet,
+    mod_en_sg_straitstimes, mod_en_sg_cna, mod_en_th_bangkokpost,
+    mod_en_ca_cbc, mod_en_ca_globeandmail, mod_en_au_smh, mod_en_au_abc,
+    mod_en_in_irdai, mod_en_in_sebi, mod_in_nse,
+    mod_doc_type, mod_filter, mod_metadata,
 };
 use crate::document::{Document};
 use crate::utils::{make_unique_filename, save_to_disk_as_json};
@@ -443,6 +452,231 @@ pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverP
                         });
                         continue;
                     },
+                    mod_en_cnn::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_cnn::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_foxnews::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_foxnews::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_usatoday::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_usatoday::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_cnbc::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_cnbc::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_marketwatch::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_marketwatch::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_business_insider::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_business_insider::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_washingtonpost::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_washingtonpost::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_latimes::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_latimes::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_chicago_tribune::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_chicago_tribune::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_theverge::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_theverge::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_arstechnica::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_arstechnica::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_cnet::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_cnet::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_sg_straitstimes::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_sg_straitstimes::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_sg_cna::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_sg_cna::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_th_bangkokpost::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_th_bangkokpost::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_fortune::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_fortune::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_techcrunch::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_techcrunch::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_wired::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_wired::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_ca_cbc::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_ca_cbc::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_ca_globeandmail::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_ca_globeandmail::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_au_smh::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_au_smh::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_au_abc::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_au_abc::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_irdai::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_irdai::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_en_in_sebi::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_en_in_sebi::run_worker_thread,
+                        });
+                        continue;
+                    },
+                    mod_in_nse::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_in_nse::run_worker_thread,
+                        });
+                        continue;
+                    },
                     // add additional retrievers here:
                     _ => {
                         debug!("Unknown plugin specified in config file: {}", plugin_name.as_str())
@@ -586,6 +820,42 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>, all_api_mutexes: H
                                 }
                             );
                         },
+                        mod_doc_type::PLUGIN_NAME => {
+                            debug!("Loading the plugin: {}",plugin_name);
+                            plugin_heap.push(
+                                DataProcPlugin {
+                                    name: mod_doc_type::PLUGIN_NAME.to_string(),
+                                    priority: priority,
+                                    enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
+                                    method: mod_doc_type::process_data,
+                                }
+                            );
+                        },
+                        mod_filter::PLUGIN_NAME => {
+                            debug!("Loading the plugin: {}",plugin_name);
+                            plugin_heap.push(
+                                DataProcPlugin {
+                                    name: mod_filter::PLUGIN_NAME.to_string(),
+                                    priority: priority,
+                                    enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
+                                    method: mod_filter::process_data,
+                                }
+                            );
+                        },
+                        mod_metadata::PLUGIN_NAME => {
+                            debug!("Loading the plugin: {}",plugin_name);
+                            plugin_heap.push(
+                                DataProcPlugin {
+                                    name: mod_metadata::PLUGIN_NAME.to_string(),
+                                    priority: priority,
+                                    enabled: plugin_enabled,
+                                    api_mutexes: all_api_mutexes.clone(),
+                                    method: mod_metadata::process_data,
+                                }
+                            );
+                        },
                         // add any new plugins here:
                         _ => {
                             debug!("Unable to load unknown data processing plugin: {}", plugin_name);
@@ -723,7 +993,7 @@ pub fn start_data_pipeline(
         all_docs_processed.push(processed_docinfo);
         // write to database after every 20 urls:
         if all_docs_processed.len() % 20 == 0 {
-            let current_idx = all_docs_processed.len() - 1;
+            let current_idx = all_docs_processed.len();
             let written_rows = utils::insert_urls_info_to_database(
                 app_config.clone(),
                 &all_docs_processed[last_written..current_idx]
@@ -736,7 +1006,7 @@ pub fn start_data_pipeline(
             last_written = current_idx;
         }
     }
-    let current_idx = if all_docs_processed.len() ==0 {0} else {all_docs_processed.len() - 1};
+    let current_idx = all_docs_processed.len();
     // write remaining urls, and then get count of successfully written to compare with list given:
     if utils::insert_urls_info_to_database(app_config, &all_docs_processed[last_written..current_idx]) < (current_idx - last_written) {
         error!("Could not write all of the retrieved urls into database table.");

@@ -99,6 +99,8 @@ logfile_backup_count=30
 # A lower number indicates higher priority, so it will be run before others are run
 plugins = [
    {"enabled"=true, "name"="mod_in_gdelt", "type"="retriever", "priority"=1}
+ , {"enabled"=true, "name"="mod_en_in_sebi", "type"="retriever", "priority"=1}
+ , {"enabled"=true, "name"="mod_en_in_irdai", "type"="retriever", "priority"=1}
  , {"enabled"=true, "name"="mod_in_nse", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_in_bse", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_in_inexp_business", "type"="retriever", "priority"=3}
@@ -139,11 +141,40 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_guardian_ng", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_punch_ng", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_allafrica", "type"="retriever", "priority"=3}
+ # USA major news
+ , {"enabled"=true, "name"="mod_en_cnn", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_foxnews", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_usatoday", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_washingtonpost", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_latimes", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_chicago_tribune", "type"="retriever", "priority"=3}
+ # Business / Tech
+ , {"enabled"=true, "name"="mod_en_cnbc", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_marketwatch", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_business_insider", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_fortune", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_techcrunch", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_wired", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_theverge", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_arstechnica", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_cnet", "type"="retriever", "priority"=3}
+ # Canada / Australia
+ , {"enabled"=true, "name"="mod_en_ca_cbc", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_ca_globeandmail", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_au_smh", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_au_abc", "type"="retriever", "priority"=3}
+ # Asia / Pacific
+ , {"enabled"=true, "name"="mod_en_sg_straitstimes", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_sg_cna", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_th_bangkokpost", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=999999}
 # , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="pdf", "folder_name"="data/pdf_files", "published_in_past_days"=999999}
  # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
  , {"enabled"=true, "name"="split_text", "type"="data_processor", "priority"=1, "overwrite"=false, "min_word_limit_to_split"=700, "previous_part_overlap"=70}
+ , {"enabled"=true, "name"="mod_doc_type", "type"="data_processor", "priority"=2}
+ , {"enabled"=true, "name"="mod_filter", "type"="data_processor", "priority"=3}
+ , {"enabled"=false, "name"="mod_metadata", "type"="data_processor", "priority"=6, "llm_service"="gemini", "prompt_metadata"="Identify industry categories from this text. Return as String array in json format.\nTEXT:\n"}
  # it is recommended to keep these plugins disabled, they will slow down the entire application
  # since the models are very large and computationally intensive
  # enable them if you are running the application on very capable hardware > 16GB RAM and 8 CPU:

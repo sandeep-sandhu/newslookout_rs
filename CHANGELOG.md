@@ -1,5 +1,13 @@
 # Change Log
 
+### Release 0.4.13
+- Declared 6 new plugins in src/lib.rs: mod_en_in_irdai, mod_en_in_sebi, mod_in_nse (retrievers) + mod_doc_type, mod_filter, mod_metadata (data processors)
+- Wired all 6 into src/pipeline.rs - imports, retriever match arms, and data processor match arms
+- Added config entries in conf/newslookout.toml:
+    - mod_en_in_sebi and mod_en_in_irdai as retrievers (priority=1, enabled)
+    - mod_doc_type (priority=2), mod_filter (priority=3), mod_metadata (priority=6, disabled by default since it requires LLM)
+- Fixed a type error in mod_in_nse.rs:74 - &str → &String for http_get()
+
 ### Release 0.4.12
 - Added structured JSON output format: `sourceName`, `pubdate`, `text`, `title`, `URL`, `keywords`, `industries`, `uniqueID`, `module` (matching the reference example files)
 - Added `source_name`, `keywords`, and `industries` fields to the `Document` struct

@@ -272,6 +272,34 @@ pub mod plugins {
     pub mod mod_en_guardian_ng;
     pub mod mod_en_punch_ng;
     pub mod mod_en_allafrica;
+    pub mod mod_en_cnn;
+    pub mod mod_en_foxnews;
+    pub mod mod_en_usatoday;
+    pub mod mod_en_cnbc;
+    pub mod mod_en_marketwatch;
+    pub mod mod_en_business_insider;
+    pub mod mod_en_washingtonpost;
+    pub mod mod_en_latimes;
+    pub mod mod_en_chicago_tribune;
+    pub mod mod_en_fortune;
+    pub mod mod_en_techcrunch;
+    pub mod mod_en_wired;
+    pub mod mod_en_theverge;
+    pub mod mod_en_arstechnica;
+    pub mod mod_en_cnet;
+    pub mod mod_en_sg_straitstimes;
+    pub mod mod_en_sg_cna;
+    pub mod mod_en_th_bangkokpost;
+    pub mod mod_en_ca_cbc;
+    pub mod mod_en_ca_globeandmail;
+    pub mod mod_en_au_smh;
+    pub mod mod_en_au_abc;
+    pub mod mod_en_in_irdai;
+    pub mod mod_en_in_sebi;
+    pub mod mod_in_nse;
+    pub mod mod_doc_type;
+    pub mod mod_filter;
+    pub mod mod_metadata;
 }
 
 pub mod network;

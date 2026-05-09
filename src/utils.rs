@@ -328,7 +328,7 @@ pub fn insert_urls_info_to_database(config: Arc<config::Config>, processed_docin
                     None => error!("Invalid timestamp {} given for published date of url {}, using default", doc_info.publish_date_ms, doc_info.url)
                 }
                 match conn.execute(
-                    "INSERT INTO completed_urls (url, plugin, pubdate, section_name, title, unique_id, filename) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR IGNORE INTO completed_urls (url, plugin, pubdate, section_name, title, unique_id, filename) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [doc_info.url.as_str(), doc_info.module.as_str(), pubdate_yyyymmdd.as_str(), doc_info.section_name.as_str(), doc_info.title.as_str(), doc_info.unique_id.as_str(), doc_info.filename.as_str()],
                 ){
                     Result::Ok(_) => counter += 1,

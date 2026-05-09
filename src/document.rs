@@ -96,8 +96,19 @@ impl Default for Document {
 
 impl Document {
     /// Serialize the document into the target output JSON format with case-sensitive field names.
+    /// Existing field names are preserved for backward compatibility; new fields are additive.
     pub fn to_output_json(&self) -> serde_json::Value {
+        // Convert text_parts: HashMap keys are Strings, values are serde_json::Value
+        let text_parts_json: Vec<serde_json::Value> = self.text_parts.iter().map(|part| {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in part {
+                obj.insert(k.clone(), v.clone());
+            }
+            serde_json::Value::Object(obj)
+        }).collect();
+
         serde_json::json!({
+            // --- original fields (names preserved for backward compat) ---
             "sourceName": self.source_name,
             "pubdate": self.publish_date,
             "text": self.text,
@@ -106,7 +117,22 @@ impl Document {
             "keywords": self.keywords,
             "industries": self.industries,
             "uniqueID": self.unique_id,
-            "module": self.module
+            "module": self.module,
+            // --- new fields ---
+            "plugin_name": self.plugin_name,
+            "section_name": self.section_name,
+            "pdf_url": self.pdf_url,
+            "filename": self.filename,
+            "source_author": self.source_author,
+            "recipients": self.recipients,
+            "publish_date_ms": self.publish_date_ms,
+            "revision_dates": self.revision_dates,
+            "links_inward": self.links_inward,
+            "links_outwards": self.links_outwards,
+            "classification": self.classification,
+            "generated_content": self.generated_content,
+            "text_parts": text_parts_json,
+            "data_proc_flags": self.data_proc_flags,
         })
     }
 }

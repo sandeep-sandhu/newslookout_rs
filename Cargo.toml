@@ -39,6 +39,7 @@ chrono = "0.4.44"
 bytes = "1.11.1"
 nom = "8.0.0"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+zip = "2"
 postgres = "0.19.13"
 rusty-tesseract = "1.1.10"
 #sqlx = { version = "0.8.6", features = [ "runtime-tokio-rustls", "postgres", "macros", "runtime-tokio-native-tls", "sqlite" ] }

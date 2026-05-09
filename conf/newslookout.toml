@@ -35,7 +35,8 @@ data_dir =  "data/files"
 # the master data files will be stored in this folder (e.g. those datasets that are appended daily)
 master_data_dir = "data/master_data"
 
-models_dir =  "models"
+# PDF files downloaded from regulatory sites will be saved to this directory
+pdf_data_dir = "data/pdf_data"
 
 # location of the log file, here it is specified relative to the data directory:
 log_file = "logs/newslookout.log"
@@ -94,53 +95,47 @@ max_logfile_size=2048000
 # this many backups of the log file will be retained
 logfile_backup_count=30
 
+# Web API status server - set enabled=true to expose pipeline stats over HTTP
+web_api_enabled=true
+web_api_host="127.0.0.1"
+web_api_port=8080
+
 # In this section, list the names of all modules to be enabled:
 # the number assigned to the priority attribute indicates execution priority,
 # A lower number indicates higher priority, so it will be run before others are run
 plugins = [
-   {"enabled"=true, "name"="mod_in_gdelt", "type"="retriever", "priority"=1}
- , {"enabled"=true, "name"="mod_en_in_sebi", "type"="retriever", "priority"=1}
+ # data providers and govt. portals
+   {"enabled"=true, "name"="mod_en_in_sebi", "type"="retriever", "priority"=1}
  , {"enabled"=true, "name"="mod_en_in_irdai", "type"="retriever", "priority"=1}
+ , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "max_pages"=10, "items_per_page"=10}
  , {"enabled"=true, "name"="mod_in_nse", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_in_bse", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_in_inexp_business", "type"="retriever", "priority"=3}
+# Indian news:
  , {"enabled"=true, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_business_std", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_hindu", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_indiankanoon", "type"="retriever", "priority"=5}
- , {"enabled"=true, "name"="mod_en_huffingtonpost", "type"="retriever", "priority"=5}
  , {"enabled"=true, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
- , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
- , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "max_pages"=10, "items_per_page"=10}
  , {"enabled"=true, "name"="mod_en_in_thehindu", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
- , {"enabled"=true, "name"="mod_en_reuters", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_bbc", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_guardian", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_bloomberg", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_ap_news", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_in_indianexpress", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_yahoo_news", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_in_hindustan_times", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_news18", "type"="retriever", "priority"=3}
+# World news
+ , {"enabled"=true, "name"="mod_en_huffingtonpost", "type"="retriever", "priority"=5}
+ , {"enabled"=true, "name"="mod_en_bbc", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_guardian", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_ap_news", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_yahoo_news", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_news24", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_allafrica", "type"="retriever", "priority"=3}
+# west asia news:
  , {"enabled"=true, "name"="mod_en_aljazeera", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_nhk_world", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_arab_news", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_gulf_news", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_khaleej_times", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_the_national", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_news24", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_guardian_ng", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_punch_ng", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_allafrica", "type"="retriever", "priority"=3}
  # USA major news
  , {"enabled"=true, "name"="mod_en_cnn", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_foxnews", "type"="retriever", "priority"=2}
@@ -149,6 +144,15 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_latimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_chicago_tribune", "type"="retriever", "priority"=3}
  # Business / Tech
+ , {"enabled"=true, "name"="mod_en_in_inexp_business", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_business_std", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_livemint", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
+ , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_reuters", "type"="retriever", "priority"=2}
+ , {"enabled"=true, "name"="mod_en_bloomberg", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_cnbc", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_marketwatch", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_business_insider", "type"="retriever", "priority"=3}
@@ -167,6 +171,8 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_sg_straitstimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_sg_cna", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_th_bangkokpost", "type"="retriever", "priority"=3}
+ , {"enabled"=true, "name"="mod_en_nhk_world", "type"="retriever", "priority"=3}
+ # data providers and data processing plugins:
  , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=999999}
 # , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="pdf", "folder_name"="data/pdf_files", "published_in_past_days"=999999}
  # the following are data processing plugins that will be run serially, in order of priority:
@@ -196,7 +202,8 @@ plugins = [
 
 # Content extraction settings
 content_extraction_min_quality = 0.1
-content_extraction_model_file = "models/dqn_model.safetensors"
+#content_extraction_model_file = "models/DuelingDQN.safetensors"
+rl_model_path = "models/DuelingDQN.safetensors"
 
 save_intermediate=true
 model_temperature=0

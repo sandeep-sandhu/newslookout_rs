@@ -1,6 +1,6 @@
 [package]
 name = "newslookout"
-version = "0.4.12"
+version = "0.5.0"
 edition = "2024"
 authors = ["Sandeep Singh Sandhu"]
 description = "A web scraping platform built for news scanning, using LLMs for text processing, powered by Rust"
@@ -46,7 +46,7 @@ rusty-tesseract = "1.1.10"
 postgres-native-tls = "0.5.3"
 clap = { version = "4.6.1", features = ["derive"] }
 samvadsetu = "0.1.2"
-content-extractor-rl = "0.1.2"
+content-extractor-rl = { version = "0.1", features = ["cuda"] }
 #anyhow = "1.0.93"
 #tch = { version = "0.17.0", features = ["download-libtorch"] }
 #rust-bert = "0.23.0"

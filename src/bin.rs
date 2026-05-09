@@ -58,6 +58,8 @@ fn run_pipeline(){
     let configref = Arc::new(config);
     init_pid_file(configref.clone());
     init_logging(configref.clone());
+    let rl_model_path = configref.get_string("rl_model_path").ok();
+    newslookout::content_extraction::init_html_extractor(rl_model_path.as_deref());
     let all_api_mutexes: HashMap<String, Arc<Mutex<isize>>> = create_api_mutexes();
     info!("Starting the data pipeline");
 

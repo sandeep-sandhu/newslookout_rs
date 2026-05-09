@@ -64,18 +64,13 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
     info!("{}: Completed persisting {} documents to {}.", PLUGIN_NAME, counter, destination);
 }
 
-/// Generates the JSON entry filename: {module}_{unique_id}_{url_hash}.json
-/// Always includes a URL hash suffix so entries are globally unique even when
-/// two articles share the same unique_id (e.g. same URL slug from different pages).
+/// Generates a globally-unique JSON entry filename: {module}_{url_hash:016x}.json
+/// Uses only the URL hash so entries never contain article subject or section names.
 fn make_json_entry_name(doc: &document::Document) -> String {
     let mut hasher = std::hash::DefaultHasher::new();
     doc.url.hash(&mut hasher);
     let url_hash = hasher.finish();
-    if !doc.unique_id.is_empty() {
-        format!("{}_{}_{:x}.json", doc.module, doc.unique_id, url_hash)
-    } else {
-        format!("{}_{:x}.json", doc.module, url_hash)
-    }
+    format!("{}_{:08x}.json", doc.module, url_hash)
 }
 
 /// Saves the document as a JSON entry inside a dated zip archive.

@@ -1,5 +1,54 @@
 # Change Log
 
+### Release 0.5.0
+New functionality, Updates and bug fixes:
+
+1. Log rotation (src/lib.rs): Replaced the plain FileAppender with a RollingFileAppender using a CompoundPolicy (size trigger + fixed-window roller). The backup pattern is <logfile>.{N}. Both max_logfile_size and logfile_backup_count are read from config.
+
+2. Duplicate JSON filenames (src/plugins/mod_persist_data.rs): make_json_entry_name now always appends a hex URL hash suffix, so filenames are globally unique even when two documents share the same unique_id slug.
+mod_persist_data.rs: make_json_entry_name now produces {plugin_name}_{url_hash:016x}.json always — no unique_id, no section name, no
+  article title. The 16-character hex URL hash is guaranteed unique per article URL. Before: mod_en_in_rbi_Draft 
+  Notifications_abc123.json; after: mod_en_in_rbi_a1b2c3d4e5f6a7b8.json.
+
+3. SQLite missing-table error (src/utils.rs): get_urls_from_database now runs CREATE TABLE IF NOT EXISTS after opening the connection, so a fresh database file is initialised automatically on first run.
+
+4. PDF error message (src/utils.rs): retrieve_pdf_content signature extended with plugin_name: &str and source_url: &str; the error log now reads [plugin] When converting PDF into text, url='…', source='…': ….
+
+5. Invalid IRDAI PDF files (src/utils.rs): After downloading, load_pdf_content checks the %PDF magic bytes before writing. Non-PDF binary content is logged with byte count and discarded — no file is written to disk, keeping the pipeline clean.
+
+6. Web API (src/web_api.rs, src/bin.rs, conf/newslookout.toml): A lightweight stdlib TcpListener-based HTTP server (no new dependencies). Endpoints: GET / (info), /health, /status (full JSON), /status/summary, /dashboard.html (auto-refreshing dark-theme dashboard). Enable with web_api_enabled=true, configure via web_api_host and web_api_port in the config file. The pipeline updates a shared Arc<Mutex<PipelineStatus>> so the API reflects live counts.
+
+7. conf/newslookout.toml — added:
+pdf_data_dir = "data/master_data"
+(sits right below master_data_dir; change the value to any path you prefer)
+
+8. src/cfg.rs — added get_pdf_data_folder(config): reads pdf_data_dir, falls back to data_dir if the key is absent, and
+creates the directory with fs::create_dir_all if it doesn't exist yet.
+
+9. src/utils.rs — renamed load_pdf_content's data_folder parameter to pdf_folder and updated all internal path constructions
+to use it, making the separation explicit.
+
+10. Plugin call chains — threaded pdf_folder: &str through every layer that calls load_pdf_content:
+- mod_en_in_irdai.rs: run_worker_thread → get_docs_from_listing_page
+- mod_en_in_sebi.rs: run_worker_thread → sebi_retrieve_docs
+- mod_en_in_rbi.rs: run_worker_thread → retrieve_data → get_docs_from_listing_page
+- bin.rs: three inline scanners (run_rbi_scanner, run_sebi_scanner, run_irdai_scanner) and their inner retrieval functions
+
+11. All JSON files continue to be saved under data_dir; only downloaded PDFs go to pdf_data_dir.
+
+12. content_extraction.rs refactored with three-level fallback:
+  - HtmlExtractor struct: holds an optional Arc<dyn RLAgent> (loaded once) and the RlConfig. Level 1 runs the DuelingDQN agent loop via
+   ArticleExtractionEnvironment, tracking the highest-quality text across steps. Level 2 runs BaselineExtractor directly. Level 3 uses
+  CSS selectors and <p> tag collection.
+  - init_html_extractor(model_path: Option<&str>): new public function called from bin.rs after init_logging. Logs one of: model
+  loaded, file not found, or no path configured. Stored in a OnceLock<HtmlExtractor> singleton so it initializes exactly once.
+  - bin.rs: reads rl_model_path from config and calls init_html_extractor at startup.
+  - Backward-compatible API: extract_article_content, extract_article_title, extract_text_from_html, and extract_doc_from_row all
+  retain their existing signatures.
+  - 17 tests added/updated; all pass.
+
+
+
 ### Release 0.4.13
 - Declared 6 new plugins in src/lib.rs: mod_en_in_irdai, mod_en_in_sebi, mod_in_nse (retrievers) + mod_doc_type, mod_filter, mod_metadata (data processors)
 - Wired all 6 into src/pipeline.rs - imports, retriever match arms, and data processor match arms

@@ -95,7 +95,7 @@ fabric.properties
 /.cargo/config.toml
 .cargo/config.toml
 
-data/
+data
 debug/
 target
 temp

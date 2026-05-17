@@ -203,7 +203,7 @@ plugins = [
 # Content extraction settings
 content_extraction_min_quality = 0.1
 #content_extraction_model_file = "models/DuelingDQN.safetensors"
-rl_model_path = "models/DuelingDQN.safetensors"
+rl_model_path = "models/DuelingDQN.onnx"
 
 save_intermediate=true
 model_temperature=0
@@ -215,7 +215,7 @@ max_gen_tokens = 8192
 max_context_len = 16384
 max_gen_tokens = 8192
 temperature = 0.0
-model_name = "gemini-2.0-flash-exp"
+model_name = "gemini-2.0-flash"
 api_url = "https://generativelanguage.googleapis.com/v1beta/models"
 model_api_timeout=200
 

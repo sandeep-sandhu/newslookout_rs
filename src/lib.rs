@@ -222,7 +222,7 @@ use std::env;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use ::config::Config;
-use log::{error, info, LevelFilter};
+use log::{info, LevelFilter};
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
@@ -370,7 +370,7 @@ pub fn load_and_run_pipeline(config: Config) -> Vec<document::Document> {
 pub fn init_logging(config: Arc<config::Config>){
     // setup logging:
     match config.get_string("log_file"){
-        Ok(mut logfile) =>{
+        Ok(logfile) =>{
 
             //set loglevel parameter from log file:
             let mut app_loglevel = LevelFilter::Info;
@@ -381,12 +381,26 @@ pub fn init_logging(config: Arc<config::Config>){
                         "INFO" => app_loglevel = LevelFilter::Info,
                         "WARN" => app_loglevel = LevelFilter::Warn,
                         "ERROR" => app_loglevel = LevelFilter::Error,
-                        _other => error!("Unknown log level configured in logfile: {}", _other)
+                        _other => println!("Unknown log level '{}' in config, defaulting to INFO", _other)
                     }
                 },
-                Err(e) => error!("When getting the log level: {}", e)
+                Err(e) => println!("Could not read log_level from config: {}", e)
             }
-            println!("Logging to file: {:?}", logfile);
+
+            // Create parent log directory if it does not exist
+            if let Some(parent) = std::path::Path::new(&logfile).parent() {
+                if !parent.as_os_str().is_empty() && !parent.exists() {
+                    match std::fs::create_dir_all(parent) {
+                        Ok(_) => println!("Created log directory: {}", parent.display()),
+                        Err(e) => {
+                            println!("ERROR: Could not create log directory '{}': {}. Logging to stderr only.", parent.display(), e);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            println!("Logging to file: {}", logfile);
 
             // read parameter from config file : max_logfile_size
             let mut size_limit: i64 = 10 * 1024 * 1024; // 10 MB
@@ -402,20 +416,26 @@ pub fn init_logging(config: Arc<config::Config>){
 
             // rolling file appender: base = logfile, backup pattern = logfile.{N}
             let roller_pattern = format!("{}.{{}}", logfile);
-            let fixed_window_roller = FixedWindowRoller::builder()
+            let fixed_window_roller = match FixedWindowRoller::builder()
                 .build(roller_pattern.as_str(), backup_count)
-                .expect("Could not create log file roller");
+            {
+                Ok(r) => r,
+                Err(e) => { println!("ERROR: Could not create log file roller: {}", e); return; }
+            };
             let size_trigger = SizeTrigger::new(size_limit as u64);
             let compound_policy = CompoundPolicy::new(
                 Box::new(size_trigger),
                 Box::new(fixed_window_roller)
             );
-            let rolling_appender = RollingFileAppender::builder()
+            let rolling_appender = match RollingFileAppender::builder()
                 .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)(local)} {i} [{l}] - {m}{n}")))
                 .build(logfile.clone(), Box::new(compound_policy))
-                .expect("Could not create rolling file appender");
+            {
+                Ok(a) => a,
+                Err(e) => { println!("ERROR: Could not create rolling log appender for '{}': {}", logfile, e); return; }
+            };
 
-            let logconfig = log4rs::config::Config::builder()
+            let logconfig = match log4rs::config::Config::builder()
                 .appender(
                     Appender::builder()
                         .filter(Box::new(ThresholdFilter::new(app_loglevel)))
@@ -426,13 +446,20 @@ pub fn init_logging(config: Arc<config::Config>){
                         .appender("logfile")
                         .build(app_loglevel)
                 )
-                .expect("Could not build logging config.");
+            {
+                Ok(c) => c,
+                Err(e) => { println!("ERROR: Could not build logging config: {}", e); return; }
+            };
 
-            log4rs::init_config(logconfig).expect("Could not initialize logging.");
+            match log4rs::init_config(logconfig) {
+                Ok(_) => {},
+                Err(e) => { println!("ERROR: Could not initialize logging: {}", e); return; }
+            }
             log::info!("Started application.");
+            println!("Logging initialized successfully.");
         }
         Err(e) => {
-            println!("Could not start logging {}", e);
+            println!("ERROR: Could not read 'log_file' from config: {}. No log file will be written.", e);
         }
     }
 }
@@ -441,32 +468,60 @@ pub fn init_pid_file(config: Arc<config::Config>){
     // setup PID file:
     match config.get_string("pid_file"){
         Ok(pidfile_name) =>{
-            //get process id
-            let pid = std::process::id();
-            // check file exists
-            let file_exists = std::path::Path::new(&pidfile_name).exists();
-            // write pid if it does not exist
-            if file_exists==false {
-                match std::fs::File::create(&pidfile_name) {
-                    Ok(output) => {
-                        match write!(&output, "{:?}", pid) {
-                            Ok(_res) => info!("Initialised PID file: {:?}, with process id={}", pidfile_name, pid),
-                            Err(err) => panic!("Could not write to PID file: {:?}, error: {}", pidfile_name, err)
-                        }
-                    }
-                    Err(e) => {
-                        error!("Cannot initialise PID file: {:?}, error: {}", pidfile_name, e);
-                        std::process::exit(0x0100);
-                    }
+            let pid_path = std::path::Path::new(&pidfile_name);
+            // Create parent directory if needed
+            if let Some(parent) = pid_path.parent() {
+                if !parent.as_os_str().is_empty() && !parent.exists() {
+                    let _ = std::fs::create_dir_all(parent);
                 }
             }
-            else{
-                // throw panic if it exists
-                panic!("Cannot initialise application since the PID file {:?} already exists", pidfile_name);
+
+            if pid_path.exists() {
+                // Read the stored PID and check whether that process is still alive
+                let stale = match std::fs::read_to_string(&pidfile_name) {
+                    Ok(contents) => {
+                        match contents.trim().parse::<u32>() {
+                            Ok(stored_pid) => {
+                                // On Linux, /proc/<pid> exists iff the process is alive
+                                let alive = std::path::Path::new(&format!("/proc/{}", stored_pid)).exists();
+                                if alive {
+                                    println!("ERROR: Another instance is already running (PID {}). PID file: {}", stored_pid, pidfile_name);
+                                    std::process::exit(1);
+                                }
+                                true // process is gone — PID file is stale
+                            }
+                            Err(_) => true // unreadable PID — treat as stale
+                        }
+                    }
+                    Err(_) => true // can't read file — treat as stale
+                };
+
+                if stale {
+                    println!("WARNING: Removing stale PID file: {}", pidfile_name);
+                    let _ = std::fs::remove_file(&pidfile_name);
+                }
+            }
+
+            // Write current PID
+            let pid = std::process::id();
+            match std::fs::File::create(&pidfile_name) {
+                Ok(output) => {
+                    match write!(&output, "{}", pid) {
+                        Ok(_) => info!("Initialised PID file: {}, process id={}", pidfile_name, pid),
+                        Err(err) => {
+                            println!("ERROR: Could not write to PID file '{}': {}", pidfile_name, err);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("ERROR: Cannot create PID file '{}': {}", pidfile_name, e);
+                    std::process::exit(1);
+                }
             }
         }
         Err(e) => {
-            println!("Could not init PID: {}", e);
+            println!("WARNING: Could not read 'pid_file' from config: {}. Skipping PID file.", e);
         }
     }
 }

@@ -31,11 +31,22 @@ use serde_json::Value;
 
 fn main() {
 
+    // Install a panic hook so all panics print a clear message to stdout (visible even without log).
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() { s.to_string() }
+                  else if let Some(s) = info.payload().downcast_ref::<String>() { s.clone() }
+                  else { "unknown panic".to_string() };
+        let location = info.location().map(|l| format!("{}:{}", l.file(), l.line()))
+                           .unwrap_or_else(|| "unknown location".to_string());
+        println!("FATAL ERROR: {} (at {})", msg, location);
+        eprintln!("FATAL ERROR: {} (at {})", msg, location);
+        default_hook(info);
+    }));
+
     if env::args().len() < 2 {
         println!("Usage: newslookout_rs <config_file>");
-        panic!("Provide config file as a command line parameter, (expect 2 parameters, but got {})",
-               env::args().len()
-        );
+        std::process::exit(1);
     }
 
     let now = match env::var("SOURCE_DATE_EPOCH") {
@@ -56,10 +67,23 @@ fn run_pipeline(){
 
     let config = read_config_from_file(config_file);
     let configref = Arc::new(config);
+    println!("Initializing PID file...");
     init_pid_file(configref.clone());
+    println!("Initializing logging...");
     init_logging(configref.clone());
+
     let rl_model_path = configref.get_string("rl_model_path").ok();
-    newslookout::content_extraction::init_html_extractor(rl_model_path.as_deref());
+    info!("Initializing content extractor (model path: {:?})...", rl_model_path);
+    let extractor_init_result = panic::catch_unwind(AssertUnwindSafe(|| {
+        newslookout::content_extraction::init_html_extractor(rl_model_path.as_deref());
+    }));
+    if let Err(e) = extractor_init_result {
+        let msg = if let Some(s) = e.downcast_ref::<&str>() { s.to_string() }
+                  else if let Some(s) = e.downcast_ref::<String>() { s.clone() }
+                  else { "unknown error".to_string() };
+        error!("Content extractor initialization failed (will use CSS fallback): {}", msg);
+        println!("WARNING: Content extractor initialization failed: {}. Using CSS fallback.", msg);
+    }
     let all_api_mutexes: HashMap<String, Arc<Mutex<isize>>> = create_api_mutexes();
     info!("Starting the data pipeline");
 

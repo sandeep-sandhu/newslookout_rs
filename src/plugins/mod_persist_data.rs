@@ -64,20 +64,23 @@ pub(crate) fn process_data(tx: Sender<document::Document>, rx: Receiver<document
     info!("{}: Completed persisting {} documents to {}.", PLUGIN_NAME, counter, destination);
 }
 
-/// Generates a globally-unique JSON entry filename: {module}_{url_hash:016x}.json
+/// Generates a globally-unique entry filename stem: {module}_{url_hash:016x}
 /// Uses only the URL hash so entries never contain article subject or section names.
-fn make_json_entry_name(doc: &document::Document) -> String {
+fn make_entry_stem(doc: &document::Document) -> String {
     let mut hasher = std::hash::DefaultHasher::new();
     doc.url.hash(&mut hasher);
     let url_hash = hasher.finish();
-    format!("{}_{:08x}.json", doc.module, url_hash)
+    format!("{}_{:016x}", doc.module, url_hash)
 }
 
-/// Saves the document as a JSON entry inside a dated zip archive.
-/// Archive: {data_folder}/{publish_date}.zip  (e.g. 2024-05-09.zip)
-/// Entry  : {module}_{unique_id}.json          (flat, no subdirectory)
+/// Saves the document as JSON (and optionally HTML) entries inside a dated zip archive.
+/// Archive: {data_folder}/{publish_date}.zip   (e.g. 2024-05-09.zip)
+/// Entries: {module}_{url_hash:016x}.json      (always written)
+///          {module}_{url_hash:016x}.html       (written when html_content is non-empty)
 fn save_to_zip(mut received: document::Document, data_folder_name: &str) -> document::Document {
-    let entry_name = make_json_entry_name(&received);
+    let stem = make_entry_stem(&received);
+    let entry_name = format!("{}.json", stem);
+    let html_entry_name = format!("{}.html", stem);
     let zip_name = format!("{}.zip", received.publish_date);
     let zip_path = Path::new(data_folder_name).join(&zip_name);
 
@@ -127,6 +130,7 @@ fn save_to_zip(mut received: document::Document, data_folder_name: &str) -> docu
     let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
+    // Write JSON entry
     match zip.start_file(&entry_name, options) {
         Ok(_) => {},
         Err(e) => {
@@ -134,12 +138,20 @@ fn save_to_zip(mut received: document::Document, data_folder_name: &str) -> docu
             return received;
         }
     }
-
     match zip.write_all(json_data.as_bytes()) {
-        Ok(_) => {
-            debug!("Wrote '{}' to {}", entry_name, zip_name);
-        },
+        Ok(_) => debug!("Wrote '{}' to {}", entry_name, zip_name),
         Err(e) => error!("When writing to zip entry {}: {}", entry_name, e)
+    }
+
+    // Write HTML entry if raw HTML was captured
+    if !received.html_content.is_empty() {
+        match zip.start_file(&html_entry_name, options) {
+            Ok(_) => match zip.write_all(received.html_content.as_bytes()) {
+                Ok(_) => debug!("Wrote HTML '{}' to {}", html_entry_name, zip_name),
+                Err(e) => error!("When writing HTML to zip entry {}: {}", html_entry_name, e)
+            },
+            Err(e) => error!("When starting HTML zip entry {}: {}", html_entry_name, e)
+        }
     }
 
     match zip.finish() {

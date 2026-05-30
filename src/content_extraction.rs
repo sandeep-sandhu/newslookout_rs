@@ -404,6 +404,126 @@ pub fn extract_text_from_html(html_content: &str) -> String {
         })
 }
 
+// ---------------------------------------------------------------------------
+// HTML to Markdown converter
+// ---------------------------------------------------------------------------
+
+/// Convert an HTML string to Markdown text.
+/// Handles headings, paragraphs, lists, links, bold/italic, tables, and blockquotes.
+/// Skips script, style, nav, and head elements.
+pub fn html_to_markdown(html: &str) -> String {
+    let doc = Html::parse_document(html);
+    let mut buf = String::new();
+    convert_element_to_markdown(doc.root_element(), &mut buf, 0);
+    // Collapse runs of 3+ newlines down to 2
+    let re = Regex::new(r"\n{3,}").unwrap();
+    re.replace_all(buf.trim(), "\n\n").to_string()
+}
+
+fn convert_element_to_markdown(element: ElementRef, buf: &mut String, list_depth: usize) {
+    for child in element.children() {
+        match child.value() {
+            scraper::node::Node::Text(text) => {
+                let t: &str = &text.text;
+                let collapsed = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !collapsed.is_empty() {
+                    buf.push_str(&collapsed);
+                    buf.push(' ');
+                }
+            }
+            scraper::node::Node::Element(el) => {
+                // Clone the small strings we need before wrapping (avoids borrow conflict)
+                let tag = el.name().to_string();
+                let href = el.attr("href").map(|s| s.to_string());
+                if let Some(child_elem) = ElementRef::wrap(child) {
+                    match tag.as_str() {
+                        "script" | "style" | "nav" | "head" | "footer" => {}
+                        "h1" => {
+                            buf.push_str("\n\n# ");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('\n');
+                        }
+                        "h2" => {
+                            buf.push_str("\n\n## ");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('\n');
+                        }
+                        "h3" => {
+                            buf.push_str("\n\n### ");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('\n');
+                        }
+                        "h4" | "h5" | "h6" => {
+                            buf.push_str("\n\n#### ");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('\n');
+                        }
+                        "p" => {
+                            buf.push_str("\n\n");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push_str("\n\n");
+                        }
+                        "br" => buf.push('\n'),
+                        "ul" | "ol" => {
+                            buf.push('\n');
+                            convert_element_to_markdown(child_elem, buf, list_depth + 1);
+                            buf.push('\n');
+                        }
+                        "li" => {
+                            let indent = "  ".repeat(list_depth.saturating_sub(1));
+                            buf.push_str(&format!("\n{}* ", indent));
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                        }
+                        "strong" | "b" => {
+                            buf.push_str("**");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            if buf.ends_with(' ') { buf.pop(); }
+                            buf.push_str("** ");
+                        }
+                        "em" | "i" => {
+                            buf.push('*');
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            if buf.ends_with(' ') { buf.pop(); }
+                            buf.push_str("* ");
+                        }
+                        "a" => {
+                            let link_target = href.as_deref().unwrap_or("#");
+                            buf.push('[');
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            if buf.ends_with(' ') { buf.pop(); }
+                            buf.push_str("](");
+                            buf.push_str(link_target);
+                            buf.push(')');
+                        }
+                        "table" => {
+                            buf.push('\n');
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('\n');
+                        }
+                        "tr" => {
+                            buf.push_str("\n| ");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('|');
+                        }
+                        "td" | "th" => {
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push_str(" | ");
+                        }
+                        "hr" => buf.push_str("\n---\n"),
+                        "blockquote" => {
+                            buf.push_str("\n> ");
+                            convert_element_to_markdown(child_elem, buf, list_depth);
+                            buf.push('\n');
+                        }
+                        _ => convert_element_to_markdown(child_elem, buf, list_depth),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Extract document details from a row of news article listings produced by liferay portal.
 pub fn extract_doc_from_row(row_each: ElementRef, source_url: &str) -> Document {
 

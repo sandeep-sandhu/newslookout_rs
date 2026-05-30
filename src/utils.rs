@@ -381,7 +381,7 @@ pub fn load_pdf_content(
         // check if pdf already exists, if so, do not retrieve again:
         if Path::exists(pdf_file_path.as_path()){
             info!("Not retrieving PDF since it already exists: {:?}", pdf_file_path);
-            if input_doc.text.len() > 1 {
+            if input_doc.text.len() < 1 {
                 let txt_filename = make_unique_filename(&input_doc, "txt");
                 let txt_file_path = Path::new(pdf_folder).join(&txt_filename);
                 let result = panic::catch_unwind(AssertUnwindSafe(|| {

@@ -29,24 +29,24 @@ regex = "1.12.3"
 scraper = "0.26.0"
 log = "0.4.29"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-reqwest = { version = "0.13.3", features = ["json", "blocking", "http2", "cookies", "gzip"] }
+serde_json = "1.0.150"
+reqwest = { version = "0.13.4", features = ["json", "blocking", "http2", "cookies", "gzip"] }
 # set "http3" feature in future releases of reqwest when it becomes stable. removed: nom_parser, pom, pom_parser
-lopdf = { version = "0.40.0"}
+lopdf = { version = "0.41.0"}
 pdf-extract = "0.10.0"
-config = "0.15.22"
-chrono = "0.4.44"
+config = "0.15.23"
+chrono = "0.4.45"
 bytes = "1.11.1"
 nom = "8.0.0"
-rusqlite = { version = "0.39.0", features = ["bundled"] }
-zip = "2"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+zip = "9.0.0-pre2"
 postgres = "0.19.13"
 rusty-tesseract = "1.1.10"
 #sqlx = { version = "0.8.6", features = [ "runtime-tokio-rustls", "postgres", "macros", "runtime-tokio-native-tls", "sqlite" ] }
 postgres-native-tls = "0.5.3"
 clap = { version = "4.6.1", features = ["derive"] }
 samvadsetu = "0.1.2"
-content-extractor-rl = { version = "0.1", features = ["cuda"] }
+content-extractor-rl = { version = "0.1.3", features = ["cuda"] }
 #anyhow = "1.0.93"
 #tch = { version = "0.17.0", features = ["download-libtorch"] }
 #rust-bert = "0.23.0"
@@ -68,8 +68,15 @@ content-extractor-rl = { version = "0.1", features = ["cuda"] }
 #xrust = "1.1.0"
 
 [dev-dependencies]
-assert_cmd = "2.2.1"
+assert_cmd = "2.2.2"
 predicates = "3.1.4"
 
 [build-dependencies]
 #tch = "0.17.0"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

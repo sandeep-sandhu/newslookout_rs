@@ -296,6 +296,7 @@ pub mod plugins {
     pub mod mod_en_in_irdai;
     pub mod mod_en_in_sebi;
     pub mod mod_in_nse;
+    pub(crate) mod mod_in_bse;
     pub mod mod_doc_type;
     pub mod mod_filter;
     pub mod mod_metadata;
@@ -309,6 +310,7 @@ pub mod pipeline;
 pub mod cfg;
 pub mod content_extraction;
 pub mod web_api;
+pub mod market_data;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");

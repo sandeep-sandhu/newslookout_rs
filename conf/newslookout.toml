@@ -202,7 +202,6 @@ plugins = [
 
 # Content extraction settings
 content_extraction_min_quality = 0.1
-#content_extraction_model_file = "models/DuelingDQN.safetensors"
 rl_model_path = "models/DuelingDQN.onnx"
 
 save_intermediate=true

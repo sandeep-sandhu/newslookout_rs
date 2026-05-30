@@ -308,7 +308,16 @@ fn extract_content_from_sebi_page(new_doc: &mut Document, client: &Client, netw_
 
     if let Some(iframe) = html_document.select(&iframe_select).nth(0) {
         if let Some(src_attr) = iframe.attr("src") {
-            new_doc.pdf_url = src_attr.replace("../../../web/?file=", "").to_string();
+            // The iframe src is either:
+            //   https://www.sebi.gov.in/web/?file=https://www.sebi.gov.in/sebi_data/...pdf
+            //   ../../../web/?file=https://...pdf
+            // Extract the real PDF URL from the ?file= query parameter.
+            let pdf_url = if let Some(pos) = src_attr.find("?file=") {
+                src_attr[pos + 6..].to_string()
+            } else {
+                src_attr.to_string()
+            };
+            new_doc.pdf_url = pdf_url;
         }
     }
 

@@ -89,7 +89,7 @@ fn run_pipeline(){
 
     let mut retriever_plugins = load_retriever_plugins(configref.clone());
     let mut data_proc_plugins = load_dataproc_plugins(configref.clone(), all_api_mutexes.clone());
-
+/*
     // rbi data retriever:
     let rbi_enabled = get_plugin_cfg!("rbi_new", "enabled", configref.clone()).unwrap_or_else(|| String::from("false")).parse::<bool>().unwrap();
     let rbi_plugin = RetrieverPlugin{
@@ -192,6 +192,7 @@ fn run_pipeline(){
         method: run_changes_extraction,
     };
     data_proc_plugins.push(changes_from_previous);
+*/
 
     info!("Loaded {} retriever and {} processing plugins to run.", retriever_plugins.len(), data_proc_plugins.len());
 

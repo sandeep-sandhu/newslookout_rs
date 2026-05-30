@@ -2,16 +2,18 @@
 // Retrieve regulatory circulars and announcements from NSE India
 
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use chrono::{NaiveDate, Utc};
 use log::{error, info, warn};
 use serde_json::Value;
+use zip::ZipArchive;
 
 use crate::{document, get_plugin_cfg};
 use crate::cfg::{get_data_folder, get_database_filename};
 use crate::document::Document;
-use crate::network::{http_get, make_http_client, read_network_parameters};
+use crate::network::{http_get, http_get_binary, make_http_client, read_network_parameters};
 use crate::utils::{check_and_fix_url, clean_text, get_urls_from_database, to_local_datetime};
 
 pub(crate) const PLUGIN_NAME: &str = "mod_in_nse";
@@ -118,7 +120,105 @@ pub(crate) fn run_worker_thread(tx: Sender<Document>, app_config: Arc<config::Co
         }
     }
 
+    // Also download today's NSE equity bhavcopy CSV.
+    download_nse_bhavcopy(&tx, &client, &already_retrieved_urls);
+
     info!("{}: Completed, retrieved {} documents.", PLUGIN_NAME, counter);
+}
+
+/// Download NSE equity bhavcopy CSV for today and send as a document.
+///
+/// NSE bhavcopy URL (new format):
+///   https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{YYYYMMDD}_F_0000.csv.zip
+fn download_nse_bhavcopy(
+    tx: &Sender<Document>,
+    client: &reqwest::blocking::Client,
+    already_retrieved: &HashSet<String>,
+) {
+    let today = Utc::now();
+    let date_str = today.format("%Y-%m-%d").to_string();
+    let date_compact = today.format("%Y%m%d").to_string();
+
+    let bhavcopy_url = format!(
+        "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{}_F_0000.csv.zip",
+        date_compact
+    );
+
+    if already_retrieved.contains(&bhavcopy_url) {
+        info!("{}: NSE bhavcopy already retrieved today, skipping.", PLUGIN_NAME);
+        return;
+    }
+
+    info!("{}: Downloading NSE bhavcopy from: {}", PLUGIN_NAME, bhavcopy_url);
+
+    // NSE requires Windows Chrome User-Agent for bhavcopy downloads
+    let bhavcopy_client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .unwrap_or_else(|_| client.clone());
+
+    let zip_bytes = http_get_binary(&bhavcopy_url, &bhavcopy_client);
+
+    if zip_bytes.is_empty() {
+        warn!("{}: Empty response for NSE bhavcopy: {}", PLUGIN_NAME, bhavcopy_url);
+        return;
+    }
+
+    // If bytes start with '<' the server returned an HTML error page instead of a zip.
+    if zip_bytes.first() == Some(&b'<') {
+        warn!("{}: NSE returned an HTML page instead of a zip — authentication or data not yet published.", PLUGIN_NAME);
+        return;
+    }
+    let cursor = std::io::Cursor::new(zip_bytes.as_ref());
+    let mut archive = match ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(e) => {
+            warn!("{}: NSE bhavcopy zip invalid (data may not be published yet): {}", PLUGIN_NAME, e);
+            return;
+        }
+    };
+
+    let mut csv_content = String::new();
+    let mut found = false;
+
+    for i in 0..archive.len() {
+        let mut entry = match archive.by_index(i) {
+            Ok(e) => e,
+            Err(e) => { warn!("{}: Zip entry error: {}", PLUGIN_NAME, e); continue; }
+        };
+        if entry.name().expect("REASON").to_lowercase().ends_with(".csv") {
+            if let Err(e) = entry.read_to_string(&mut csv_content) {
+                error!("{}: Failed reading NSE CSV: {}", PLUGIN_NAME, e);
+            } else {
+                found = true;
+            }
+            break;
+        }
+    }
+
+    if !found || csv_content.is_empty() {
+        warn!("{}: No CSV found in NSE bhavcopy zip.", PLUGIN_NAME);
+        return;
+    }
+
+    let row_count = csv_content.lines().count().saturating_sub(1);
+
+    let mut doc = Document::default();
+    doc.module = PLUGIN_NAME.to_string();
+    doc.plugin_name = PUBLISHER_NAME.to_string();
+    doc.source_author = PUBLISHER_NAME.to_string();
+    doc.section_name = "Equity Bhavcopy".to_string();
+    doc.url = bhavcopy_url;
+    doc.title = format!("NSE Equity Bhavcopy {}", date_str);
+    doc.publish_date = date_str;
+    doc.publish_date_ms = today.timestamp();
+    doc.text = csv_content;
+
+    match tx.send(doc) {
+        Ok(_) => info!("{}: Sent NSE bhavcopy document ({} rows).", PLUGIN_NAME, row_count),
+        Err(e) => error!("{}: Channel send error: {}", PLUGIN_NAME, e),
+    }
 }
 
 fn extract_docs_from_nse_listing(

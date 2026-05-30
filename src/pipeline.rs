@@ -37,7 +37,7 @@ use crate::plugins::{
     mod_en_theverge, mod_en_arstechnica, mod_en_cnet,
     mod_en_sg_straitstimes, mod_en_sg_cna, mod_en_th_bangkokpost,
     mod_en_ca_cbc, mod_en_ca_globeandmail, mod_en_au_smh, mod_en_au_abc,
-    mod_en_in_irdai, mod_en_in_sebi, mod_in_nse,
+    mod_en_in_irdai, mod_en_in_sebi, mod_in_nse, mod_in_bse,
     mod_doc_type, mod_filter, mod_metadata,
 };
 use crate::document::{Document};
@@ -678,6 +678,15 @@ pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverP
                         });
                         continue;
                     },
+                    mod_in_bse::PLUGIN_NAME => {
+                        retriever_plugins.push(RetrieverPlugin {
+                            name: plugin_name,
+                            priority,
+                            enabled: plugin_enabled,
+                            method: mod_in_bse::run_worker_thread,
+                        });
+                        continue;
+                    },
                     // add additional retrievers here:
                     _ => {
                         debug!("Unknown plugin specified in config file: {}", plugin_name.as_str())
@@ -726,7 +735,9 @@ pub fn load_dataproc_plugins(app_config: Arc<config::Config>, all_api_mutexes: H
                 if plugin_enabled && plugin_type == PluginType::DataProcessor {
                     match plugin_name.as_str() {
                         "split_text" => {
-                            debug!("Loading the data processing plugin: {}",plugin_name);
+                            // split_text is now merged into mod_vectorstore; kept for
+                            // backward-compat with old config files but runs as a no-op pass-through.
+                            debug!("split_text is merged into mod_vectorstore; registering as pass-through");
                             plugin_heap.push(
                                 DataProcPlugin {
                                     name: "split_text".to_string(),
@@ -967,6 +978,14 @@ pub fn start_data_pipeline(
             s.retrievers_enabled = retriever_plugins.iter().filter(|p| p.enabled).count();
             s.data_processors_total = data_proc_plugins.len();
             s.data_processors_enabled = data_proc_plugins.iter().filter(|p| p.enabled).count();
+            s.retriever_plugin_names = retriever_plugins.iter()
+                .filter(|p| p.enabled)
+                .map(|p| p.name.clone())
+                .collect();
+            s.data_processor_plugin_names = data_proc_plugins.iter()
+                .filter(|p| p.enabled)
+                .map(|p| p.name.clone())
+                .collect();
         }
     }
 

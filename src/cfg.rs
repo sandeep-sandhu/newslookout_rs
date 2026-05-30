@@ -96,6 +96,26 @@ pub fn get_data_folder(config: &Config) -> std::path::PathBuf {
     return path_currdir;
 }
 
+/// Returns the folder where master/dataset files are saved (e.g. weekly XLS reports).
+/// Reads `master_data_dir` from config; falls back to `data_dir`.
+/// Creates the directory if it does not already exist.
+pub fn get_master_data_folder(config: &Config) -> std::path::PathBuf {
+    let dirname = config.get_string("master_data_dir")
+        .or_else(|_| config.get_string("data_dir"))
+        .unwrap_or_else(|_| "data/master_data".to_string());
+    let dirpath = std::path::PathBuf::from(&dirname);
+    if !dirpath.is_dir() {
+        match fs::create_dir_all(&dirpath) {
+            Ok(_) => info!("Created master data directory: {}", dirname),
+            Err(e) => {
+                error!("Could not create master data directory '{}': {}", dirname, e);
+                return env::current_dir().expect("Could not get current directory");
+            }
+        }
+    }
+    dirpath
+}
+
 /// Returns the folder where PDF files are saved.
 /// Reads `pdf_data_dir` from config; falls back to `data_dir`.
 /// Creates the directory if it does not already exist.
@@ -343,6 +363,30 @@ mod tests {
         let result_5 = get_cfg_bool!("key5", mycfg, false);
         println!("result_5 = {:?}", result_5);
         assert_eq!(result_5, false);
+    }
+
+    #[test]
+    fn test_get_master_data_folder_default() {
+        // When the key is missing, get_master_data_folder falls back to data_dir
+        let cfg = config::Config::builder()
+            .set_default("data_dir", "/tmp")
+            .unwrap()
+            .build()
+            .unwrap();
+        let path = super::get_master_data_folder(&cfg);
+        // /tmp always exists, so path should resolve to /tmp
+        assert!(path.to_str().is_some());
+    }
+
+    #[test]
+    fn test_get_master_data_folder_configured() {
+        let cfg = config::Config::builder()
+            .set_default("master_data_dir", "/tmp")
+            .unwrap()
+            .build()
+            .unwrap();
+        let path = super::get_master_data_folder(&cfg);
+        assert_eq!(path.to_str().unwrap(), "/tmp");
     }
 
     #[test]

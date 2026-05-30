@@ -20,6 +20,12 @@ pub struct PipelineStatus {
     pub docs_retrieved: usize,
     pub docs_processed: usize,
     pub start_time: DateTime<Utc>,
+    /// Names of all enabled retriever plugins.
+    pub retriever_plugin_names: Vec<String>,
+    /// Names of all enabled data processor plugins.
+    pub data_processor_plugin_names: Vec<String>,
+    /// Plugins that have completed (name → doc count string).
+    pub completed_plugins: Vec<(String, usize)>,
 }
 
 impl PipelineStatus {
@@ -33,6 +39,9 @@ impl PipelineStatus {
             docs_retrieved: 0,
             docs_processed: 0,
             start_time: Utc::now(),
+            retriever_plugin_names: Vec::new(),
+            data_processor_plugin_names: Vec::new(),
+            completed_plugins: Vec::new(),
         }
     }
 }
@@ -49,7 +58,7 @@ pub fn start_web_api(host: &str, port: u16, status: SharedStatus) {
     let addr = format!("{}:{}", host, port);
     match TcpListener::bind(&addr) {
         Ok(listener) => {
-            info!("Status API listening on http://{}/status", addr);
+            info!("Status API listening on http://{}/dashboard.html", addr);
             thread::Builder::new()
                 .name("web_api".into())
                 .spawn(move || {
@@ -118,16 +127,31 @@ fn health_response() -> (&'static str, &'static str, String) {
 fn status_response(status: &SharedStatus) -> (&'static str, &'static str, String) {
     let st = status.lock().unwrap();
     let elapsed = Utc::now().signed_duration_since(st.start_time);
+
+    // Build JSON array of retriever names
+    let retriever_names: Vec<String> = st.retriever_plugin_names.iter()
+        .map(|n| format!("\"{}\"", n))
+        .collect();
+    let processor_names: Vec<String> = st.data_processor_plugin_names.iter()
+        .map(|n| format!("\"{}\"", n))
+        .collect();
+    let completed: Vec<String> = st.completed_plugins.iter()
+        .map(|(n, cnt)| format!("{{\"name\":\"{}\",\"docs\":{}}}", n, cnt))
+        .collect();
+
     let body = format!(
-        r#"{{"timestamp":"{ts}","application":{{"name":"NewsLookout","version":"0.5.0","is_running":{running},"start_time":"{start}","elapsed_seconds":{elapsed}}},"plugins":{{"retrievers":{{"total":{rt},"enabled":{re}}},"data_processors":{{"total":{dt},"enabled":{de}}}}},"documents":{{"retrieved":{dr},"processed":{dp}}}}}"#,
+        r#"{{"timestamp":"{ts}","application":{{"name":"NewsLookout","version":"0.5.0","is_running":{running},"start_time":"{start}","elapsed_seconds":{elapsed}}},"plugins":{{"retrievers":{{"total":{rt},"enabled":{re},"names":[{rnames}]}},"data_processors":{{"total":{dt},"enabled":{de},"names":[{pnames}]}},"completed":[{comp}]}},"documents":{{"retrieved":{dr},"processed":{dp}}}}}"#,
         ts      = Utc::now().to_rfc3339(),
         running = st.is_running,
         start   = st.start_time.to_rfc3339(),
         elapsed = elapsed.num_seconds(),
         rt = st.retrievers_total,
         re = st.retrievers_enabled,
+        rnames = retriever_names.join(","),
         dt = st.data_processors_total,
         de = st.data_processors_enabled,
+        pnames = processor_names.join(","),
+        comp = completed.join(","),
         dr = st.docs_retrieved,
         dp = st.docs_processed,
     );
@@ -159,33 +183,53 @@ fn dashboard_response() -> (&'static str, &'static str, String) {
   body{font-family:sans-serif;background:#1a1a2e;color:#eee;margin:0;padding:20px}
   h1{color:#e94560;margin-bottom:4px}
   .sub{color:#aaa;font-size:.85em;margin-bottom:24px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
   .card{background:#16213e;border-radius:8px;padding:20px;border:1px solid #0f3460}
   .card h3{margin:0 0 8px;color:#e94560;font-size:.85em;text-transform:uppercase;letter-spacing:.05em}
   .card .val{font-size:2.2em;font-weight:700;color:#fff}
   .card .label{font-size:.75em;color:#aaa;margin-top:4px}
   .status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
   .running{background:#00d26a}.stopped{background:#e94560}
-  table{width:100%;border-collapse:collapse;background:#16213e;border-radius:8px;overflow:hidden}
+  table{width:100%;border-collapse:collapse;background:#16213e;border-radius:8px;overflow:hidden;margin-bottom:20px}
   th{background:#0f3460;padding:10px 14px;text-align:left;font-size:.8em;text-transform:uppercase;color:#aaa}
-  td{padding:10px 14px;border-bottom:1px solid #0f3460;font-size:.9em}
+  td{padding:8px 14px;border-bottom:1px solid #0f3460;font-size:.85em}
   tr:last-child td{border-bottom:none}
+  .section-title{color:#e94560;font-size:1em;font-weight:600;margin:20px 0 8px}
+  .plugin-tag{display:inline-block;background:#0f3460;border-radius:4px;padding:2px 8px;margin:2px;font-size:.75em}
   .footer{color:#555;font-size:.75em;margin-top:20px}
 </style>
 </head>
 <body>
 <h1>NewsLookout</h1>
 <div class="sub">Pipeline Status Dashboard &mdash; auto-refreshes every 10s</div>
+
 <div class="grid" id="cards">
   <div class="card"><h3>Status</h3><div class="val" id="status">…</div></div>
   <div class="card"><h3>Docs Retrieved</h3><div class="val" id="retrieved">…</div></div>
   <div class="card"><h3>Docs Processed</h3><div class="val" id="processed">…</div></div>
   <div class="card"><h3>Elapsed</h3><div class="val" id="elapsed">…</div></div>
+  <div class="card"><h3>Retrievers</h3><div class="val" id="ret-count">…</div><div class="label" id="ret-label">enabled</div></div>
+  <div class="card"><h3>Processors</h3><div class="val" id="proc-count">…</div><div class="label" id="proc-label">enabled</div></div>
 </div>
+
+<p class="section-title">Plugin Overview</p>
 <table>
 <thead><tr><th>Plugin Type</th><th>Total</th><th>Enabled</th></tr></thead>
 <tbody id="ptable"><tr><td colspan="3">Loading…</td></tr></tbody>
 </table>
+
+<p class="section-title">Retriever Plugins</p>
+<div id="retriever-tags">…</div>
+
+<p class="section-title">Data Processor Plugins</p>
+<div id="processor-tags">…</div>
+
+<p class="section-title">Completed Plugins</p>
+<table>
+<thead><tr><th>Plugin</th><th>Docs</th></tr></thead>
+<tbody id="completed-table"><tr><td colspan="2">—</td></tr></tbody>
+</table>
+
 <div class="footer">Powered by NewsLookout &mdash; <span id="ts"></span></div>
 <script>
 async function refresh(){
@@ -202,11 +246,35 @@ async function refresh(){
     document.getElementById('elapsed').textContent=
       `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
     const p=d.plugins;
+    document.getElementById('ret-count').textContent=p.retrievers.enabled;
+    document.getElementById('ret-label').textContent=`of ${p.retrievers.total} total`;
+    document.getElementById('proc-count').textContent=p.data_processors.enabled;
+    document.getElementById('proc-label').textContent=`of ${p.data_processors.total} total`;
     document.getElementById('ptable').innerHTML=
       `<tr><td>Retrievers</td><td>${p.retrievers.total}</td><td>${p.retrievers.enabled}</td></tr>`+
       `<tr><td>Data Processors</td><td>${p.data_processors.total}</td><td>${p.data_processors.enabled}</td></tr>`;
+
+    // Retriever plugin tags
+    const rnames = p.retrievers.names || [];
+    document.getElementById('retriever-tags').innerHTML =
+      rnames.length ? rnames.map(n=>`<span class="plugin-tag">${n}</span>`).join('') : '—';
+
+    // Data processor plugin tags
+    const pnames = p.data_processors.names || [];
+    document.getElementById('processor-tags').innerHTML =
+      pnames.length ? pnames.map(n=>`<span class="plugin-tag">${n}</span>`).join('') : '—';
+
+    // Completed plugins table
+    const comp = p.completed || [];
+    document.getElementById('completed-table').innerHTML =
+      comp.length
+        ? comp.map(c=>`<tr><td>${c.name}</td><td>${c.docs}</td></tr>`).join('')
+        : '<tr><td colspan="2">None yet</td></tr>';
+
     document.getElementById('ts').textContent=d.timestamp;
-  }catch(e){document.getElementById('status').textContent='API unavailable';}
+  }catch(e){
+    document.getElementById('status').textContent='API unavailable';
+  }
 }
 refresh();
 </script>

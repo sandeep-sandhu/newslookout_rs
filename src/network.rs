@@ -87,7 +87,8 @@ pub fn make_http_client(netw_params: &NetworkParameters) -> reqwest::blocking::C
     headers.insert(reqwest::header::DNT, HeaderValue::from(1));
     headers.insert(reqwest::header::CONNECTION, HeaderValue::from_static("keep-alive"));
     headers.insert(reqwest::header::ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"));
-    headers.insert(reqwest::header::ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate, br, zstd"));
+    // Only advertise encodings that reqwest can decompress (gzip feature enabled; brotli/zstd are not)
+    headers.insert(reqwest::header::ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate"));
     headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml,application/json"));
 
     let client_bld: reqwest::blocking::ClientBuilder= reqwest::blocking::Client::builder()

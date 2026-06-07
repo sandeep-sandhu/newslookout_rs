@@ -1,5 +1,81 @@
 # Change Log
 
+### Release 1.0.0
+
+Summary of Updates and bug fixes:
+
+1. Fix correctness & log-noise
+
+- html5ever WARN spam silenced — per-module log threshold in lib.rs; eliminates the 2,880 "foster parenting not
+  implemented" lines (79% of all warnings).
+- get_plugin_cfg! missing-key ERROR → debug — optional keys with defaults no longer log errors (kills the
+  max_pages/items_per_page/vectorstore_model_dir error spam).
+- http_get hardened — now checks status().is_success(), retries only retryable statuses (5xx/408/429), abandons
+  permanent 4xx (403/404) immediately, exponential backoff + jitter. A 403/404 error page is no longer mistaken for
+  article content.
+- IRDAI '--' date — placeholder/empty dates skipped silently instead of erroring 20×.
+
+2. BSE/NSE deep-fix
+
+- BSE: verified via curl that the old EQ{DDMMYY}_CSV.ZIP URL now returns HTML; switched to the current UDiFF plain-CSV
+  URL. NSE: cookie-store + landing-page warm-up for the API/listings. Both now walk back over recent business days
+  (utils::recent_business_days) to handle weekends/holidays/early runs.
+
+3. Full generic-retriever migration
+
+- New src/plugins/html_news.rs: one config-driven retriever (SiteConfig + run()), covering URL validity, ID
+  extraction, the .filter() extraction-order fix, and real publish-date parsing (JSON-LD/meta instead of now()).
+- All 47 news plugins migrated to thin SiteConfig declarations (~40 lines each vs ~250).
+- Dispatch table replaces ~500 lines of match arms in pipeline.rs (1119 → 686 lines).
+
+4. Discovery, dedup, politeness
+
+- utils::canonicalize_url (strips tracking params/fragment/trailing slash).
+- mod_dedupe (was a no-op // TODO): SimHash near-duplicate detection for syndicated wire copy.
+- src/discovery.rs: RSS/Atom/sitemap parsing, robots.txt compliance, per-host rate limiting — all wired into
+  html_news.
+
+
+5. Systemic fixes in html_news.rs (affected all 47 plugins):
+
+1. Protocol-relative URL resolution — //gem.cbc.ca was falling into the starts_with('/') branch and being prepended with the full base_url, producing malformed URLs like www.cbc.ca/news//gem.cbc.ca. Now correctly resolved as https://gem.cbc.ca (then filtered by valid_url_patterns).
+
+2. Absolute-path URL resolution — hrefs like /music were joined with the full base_url including its path (e.g. https://www.cbc.ca/news + /music =   https://www.cbc.ca/news/music), which then falsely passed the cbc.ca/news/ pattern. Now joined with scheme+host only via the new scheme_host_of() helper →   https://www.cbc.ca/music → correctly filtered.
+
+
+6. Per-plugin fixes:
+
+┌─────────────────┬───────────────────────────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────┐
+│     Plugin      │                                    Fix                                    │                       Errors eliminated                        │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ CBC             │ valid_url_patterns: www.cbc.ca/news/ + min_path_depth: 5                  │ //gem.cbc.ca, /music, /radio, /news/news/politics section spam │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ CNBC            │ valid_url_patterns: www.cnbc.com/ + min_path_depth: 5                     │ //www.cnbc.com//... double-slash URLs                          │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ Chicago Tribune │ valid_url_patterns: www.chicagotribune.com/                               │ myaccount., placeanad. subdomain fetches                       │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ Bangkok Post    │ valid_url_patterns: www.bangkokpost.com/                                  │ job.bangkokpost.com fetches                                    │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ LA Times        │ valid_url_patterns: www.latimes.com/                                      │ membership.latimes.com fetches                                 │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ SMH             │ valid_url_patterns: www.smh.com.au/                                       │ tributes.smh.com.au fetches                                    │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ ABC Australia   │ min_path_depth: 5 + skip /education, /listen, /local, /abckids            │ Section page spam                                              │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ Yahoo News      │ min_last_segment_len: 10                                                  │ /news/2/ through /news/9/ pagination fetches                   │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ Moneycontrol    │ min_path_depth: 5 + skip /infographic, /photogallery, /slideshow          │ /news/fintech/ etc. section pages                              │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ Guardian        │ Added /gallery/, /audio/, /info/, /sign-up to skip                        │ Gallery/podcast/info page fetches                              │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ Punch NG        │ "/advertise/" → "/advertise"                                              │ /advertise-with-us (missed due to no trailing slash)           │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ CNA             │ Added /listen/ to skip                                                    │ /listen/cna938/schedule fetches                                │
+├─────────────────┼───────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────┤
+│ The Hindu       │ Added /subscription, /crosswords, /premium, /lit-for-life, /ebook to skip │ Subscription/content gate pages                                │
+└─────────────────┴───────────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────┘
+
+
 ### Release 0.5.0
 New functionality, Updates and bug fixes:
 

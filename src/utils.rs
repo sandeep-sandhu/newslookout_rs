@@ -214,6 +214,111 @@ pub fn to_local_datetime(date: NaiveDate) -> DateTime<Local> {
     }
 }
 
+/// Returns the most recent `count` weekday dates (Mon–Fri), ending at and including
+/// `from` if it is itself a weekday, walking backwards in time.
+///
+/// Stock exchanges (NSE/BSE) publish the daily bhavcopy only on trading days, and the
+/// current day's file does not exist until after market close. Callers should try each
+/// returned date in order (most recent first) and stop at the first that yields data.
+/// This does not account for exchange trading holidays — those simply produce a missing
+/// file for that date and the caller falls through to the next candidate.
+///
+/// # Arguments
+/// * `from`: the reference date (typically today)
+/// * `count`: how many weekday candidates to return
+pub fn recent_business_days(from: NaiveDate, count: usize) -> Vec<NaiveDate> {
+    use chrono::Datelike;
+    let mut days = Vec::with_capacity(count);
+    let mut cursor = from;
+    while days.len() < count {
+        let weekday = cursor.weekday();
+        if weekday != chrono::Weekday::Sat && weekday != chrono::Weekday::Sun {
+            days.push(cursor);
+        }
+        match cursor.pred_opt() {
+            Some(prev) => cursor = prev,
+            None => break,
+        }
+    }
+    days
+}
+
+
+/// Canonicalize a URL for de-duplication and storage: lowercase the scheme+host, drop the
+/// fragment, strip common tracking query parameters (utm_*, fbclid, gclid, …), and remove a
+/// trailing slash (except for the root path). Two URLs that differ only by tracking params,
+/// fragment, or trailing slash canonicalize to the same string.
+pub fn canonicalize_url(raw: &str) -> String {
+    let s = raw.trim();
+
+    // Split off the fragment.
+    let without_frag = s.split('#').next().unwrap_or(s);
+
+    // Separate the base (scheme://host/path) from the query string.
+    let (base, query) = match without_frag.split_once('?') {
+        Some((b, q)) => (b, Some(q)),
+        None => (without_frag, None),
+    };
+
+    // Lowercase only the scheme + host portion, preserve path case.
+    let lowered_base = if let Some(scheme_end) = base.find("://") {
+        let after = scheme_end + 3;
+        let path_start = base[after..].find('/').map(|i| after + i).unwrap_or(base.len());
+        let mut out = String::with_capacity(base.len());
+        out.push_str(&base[..path_start].to_lowercase());
+        out.push_str(&base[path_start..]);
+        out
+    } else {
+        base.to_string()
+    };
+
+    // Trim a trailing slash unless the path is just "/".
+    let trimmed_base = {
+        let scheme_len = lowered_base.find("://").map(|i| i + 3).unwrap_or(0);
+        let host_path = &lowered_base[scheme_len..];
+        if host_path.matches('/').count() <= 1 {
+            // host with no path or root path only; leave as-is
+            lowered_base.clone()
+        } else if let Some(stripped) = lowered_base.strip_suffix('/') {
+            stripped.to_string()
+        } else {
+            lowered_base.clone()
+        }
+    };
+
+    // Rebuild the query string, dropping tracking parameters.
+    let kept_query: Vec<&str> = match query {
+        Some(q) => q
+            .split('&')
+            .filter(|pair| !pair.is_empty())
+            .filter(|pair| {
+                let key = pair.split('=').next().unwrap_or("");
+                !is_tracking_param(key)
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+
+    if kept_query.is_empty() {
+        trimmed_base
+    } else {
+        format!("{}?{}", trimmed_base, kept_query.join("&"))
+    }
+}
+
+/// Returns true for query parameter keys that are tracking/analytics noise, not content.
+fn is_tracking_param(key: &str) -> bool {
+    let k = key.to_lowercase();
+    if k.starts_with("utm_") {
+        return true;
+    }
+    matches!(
+        k.as_str(),
+        "fbclid" | "gclid" | "dclid" | "gclsrc" | "igshid" | "mc_cid" | "mc_eid"
+            | "ref" | "ref_src" | "referrer" | "cmpid" | "cmp" | "ncid" | "ito"
+            | "spm" | "yclid" | "_ga" | "s_kwcid" | "wt_mc"
+    )
+}
 
 // Get files listing from data folder
 // Filter list by file extension
@@ -790,6 +895,78 @@ mod tests {
     }
 
     #[test]
+    fn test_canonicalize_strips_tracking_and_fragment() {
+        assert_eq!(
+            utils::canonicalize_url("https://Example.com/News/Story?utm_source=twitter&id=42#section"),
+            "https://example.com/News/Story?id=42"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_drops_trailing_slash() {
+        assert_eq!(
+            utils::canonicalize_url("https://example.com/news/story/"),
+            "https://example.com/news/story"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_keeps_root_slash() {
+        assert_eq!(utils::canonicalize_url("https://example.com/"), "https://example.com/");
+    }
+
+    #[test]
+    fn test_canonicalize_removes_query_when_all_tracking() {
+        assert_eq!(
+            utils::canonicalize_url("https://example.com/a/b?fbclid=xyz&gclid=abc"),
+            "https://example.com/a/b"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_idempotent() {
+        let once = utils::canonicalize_url("https://example.com/a/?utm_medium=x");
+        assert_eq!(once, utils::canonicalize_url(&once));
+    }
+
+    #[test]
+    fn test_recent_business_days_from_weekday() {
+        use chrono::NaiveDate;
+        // 2025-06-04 is a Wednesday
+        let wed = NaiveDate::from_ymd_opt(2025, 6, 4).unwrap();
+        let days = utils::recent_business_days(wed, 3);
+        assert_eq!(days, vec![
+            NaiveDate::from_ymd_opt(2025, 6, 4).unwrap(), // Wed
+            NaiveDate::from_ymd_opt(2025, 6, 3).unwrap(), // Tue
+            NaiveDate::from_ymd_opt(2025, 6, 2).unwrap(), // Mon
+        ]);
+    }
+
+    #[test]
+    fn test_recent_business_days_skips_weekend() {
+        use chrono::NaiveDate;
+        // 2025-06-08 is a Sunday -> should skip to Fri 6th, Thu 5th
+        let sun = NaiveDate::from_ymd_opt(2025, 6, 8).unwrap();
+        let days = utils::recent_business_days(sun, 2);
+        assert_eq!(days, vec![
+            NaiveDate::from_ymd_opt(2025, 6, 6).unwrap(), // Fri
+            NaiveDate::from_ymd_opt(2025, 6, 5).unwrap(), // Thu
+        ]);
+    }
+
+    #[test]
+    fn test_recent_business_days_from_monday_back_to_friday() {
+        use chrono::NaiveDate;
+        // 2025-06-09 is a Monday -> Mon 9th, then Fri 6th (skipping Sun 8 & Sat 7)
+        let mon = NaiveDate::from_ymd_opt(2025, 6, 9).unwrap();
+        let days = utils::recent_business_days(mon, 2);
+        assert_eq!(days, vec![
+            NaiveDate::from_ymd_opt(2025, 6, 9).unwrap(), // Mon
+            NaiveDate::from_ymd_opt(2025, 6, 6).unwrap(), // Fri
+        ]);
+    }
+
+    #[test]
     fn test_get_text_from_element() {
         assert_eq!(1,1);
     }
@@ -891,7 +1068,7 @@ mod tests {
         example1.module = "mod_dummy".to_string();
         example1.section_name = "some_section".to_string();
         example1.publish_date_ms = 1010;
-        let example1_expected_filename = "mod_dummy_some_section_ormance-in-rendering-customer-service-to-members-of-public-12055_1400996662519724217_1970-01-01.json";
+        let example1_expected_filename = "mod_dummy_ormance-in-rendering-customer-service-to-members-of-public-12055_1400996662519724217_1970-01-01.json";
         let example1_result = make_unique_filename(&example1, "json");
         // debug!("output filename: {}", example1_result);
         assert_eq!(example1_result, example1_expected_filename.to_string(), "Unable to set the filename correctly.")

@@ -147,7 +147,12 @@ impl HtmlExtractor {
         let baseline = BaselineExtractor::new(english_stopwords());
         let mut env = ArticleExtractionEnvironment::new(baseline, self.config.clone());
 
-        let mut state = match env.reset(html, url.to_string(), None::<&SiteProfile>) {
+        let mut state = match env.reset(
+            html,
+            url.to_string(),
+            None::<&str>,
+            None::<&SiteProfile>,
+        ) {
             Ok(s) => s,
             Err(e) => {
                 debug!("RL env reset error: {}", e);
@@ -377,6 +382,52 @@ pub fn extract_article_content(html: &str, min_quality_score: f32) -> Option<Str
 /// Extract article content from HTML, providing the source URL for RL domain features.
 pub fn extract_article_content_with_url(html: &str, url: &str, min_quality_score: f32) -> Option<String> {
     global_extractor().extract_content(html, url, min_quality_score)
+}
+
+/// Extract `articleBody` from any JSON-LD `<script type="application/ld+json">` block.
+///
+/// Many news sites (Times of India, AP News, etc.) embed structured data that contains the
+/// full article text, even when the HTML body has obfuscated class names or is JS-rendered.
+pub fn extract_json_ld_article_body(html: &str) -> Option<String> {
+    let re = match regex::Regex::new(r#"<script[^>]*type="application/ld\+json"[^>]*>([\s\S]*?)</script>"#) {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    for cap in re.captures_iter(html) {
+        let json_str = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            let body = extract_article_body_from_value(&val);
+            if let Some(text) = body {
+                let cleaned = text.trim().to_string();
+                if cleaned.len() >= 200 {
+                    return Some(cleaned);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn extract_article_body_from_value(val: &serde_json::Value) -> Option<String> {
+    match val {
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                if let Some(text) = extract_article_body_from_value(item) {
+                    return Some(text);
+                }
+            }
+            None
+        }
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(body)) = map.get("articleBody") {
+                if !body.is_empty() {
+                    return Some(body.clone());
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 /// Extract the article title from HTML.

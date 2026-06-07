@@ -184,516 +184,83 @@ pub fn load_retriever_plugins(app_config: Arc<config::Config>) -> Vec<RetrieverP
         }
     }
 
+    // Dispatch table mapping each retriever plugin's config name to its worker entry point.
+    // Replaces ~500 lines of identical match arms. To add a retriever, add one line here.
+    let registry: &[(&str, fn(Sender<document::Document>, Arc<config::Config>))] = &[
+        (mod_en_in_rbi::PLUGIN_NAME, mod_en_in_rbi::run_worker_thread),
+        (mod_en_in_business_standard::PLUGIN_NAME, mod_en_in_business_standard::run_worker_thread),
+        (mod_offline_docs::PLUGIN_NAME, mod_offline_docs::run_worker_thread),
+        (mod_en_in_thehindu::PLUGIN_NAME, mod_en_in_thehindu::run_worker_thread),
+        (mod_en_in_ndtv::PLUGIN_NAME, mod_en_in_ndtv::run_worker_thread),
+        (mod_en_in_livemint::PLUGIN_NAME, mod_en_in_livemint::run_worker_thread),
+        (mod_en_in_moneycontrol::PLUGIN_NAME, mod_en_in_moneycontrol::run_worker_thread),
+        (mod_en_in_timesofindia::PLUGIN_NAME, mod_en_in_timesofindia::run_worker_thread),
+        (mod_en_in_forbes::PLUGIN_NAME, mod_en_in_forbes::run_worker_thread),
+        (mod_en_reuters::PLUGIN_NAME, mod_en_reuters::run_worker_thread),
+        (mod_en_bbc::PLUGIN_NAME, mod_en_bbc::run_worker_thread),
+        (mod_en_guardian::PLUGIN_NAME, mod_en_guardian::run_worker_thread),
+        (mod_en_bloomberg::PLUGIN_NAME, mod_en_bloomberg::run_worker_thread),
+        (mod_en_ap_news::PLUGIN_NAME, mod_en_ap_news::run_worker_thread),
+        (mod_en_in_indianexpress::PLUGIN_NAME, mod_en_in_indianexpress::run_worker_thread),
+        (mod_en_yahoo_news::PLUGIN_NAME, mod_en_yahoo_news::run_worker_thread),
+        (mod_en_in_hindustan_times::PLUGIN_NAME, mod_en_in_hindustan_times::run_worker_thread),
+        (mod_en_in_news18::PLUGIN_NAME, mod_en_in_news18::run_worker_thread),
+        (mod_en_aljazeera::PLUGIN_NAME, mod_en_aljazeera::run_worker_thread),
+        (mod_en_nhk_world::PLUGIN_NAME, mod_en_nhk_world::run_worker_thread),
+        (mod_en_arab_news::PLUGIN_NAME, mod_en_arab_news::run_worker_thread),
+        (mod_en_gulf_news::PLUGIN_NAME, mod_en_gulf_news::run_worker_thread),
+        (mod_en_khaleej_times::PLUGIN_NAME, mod_en_khaleej_times::run_worker_thread),
+        (mod_en_the_national::PLUGIN_NAME, mod_en_the_national::run_worker_thread),
+        (mod_en_news24::PLUGIN_NAME, mod_en_news24::run_worker_thread),
+        (mod_en_guardian_ng::PLUGIN_NAME, mod_en_guardian_ng::run_worker_thread),
+        (mod_en_punch_ng::PLUGIN_NAME, mod_en_punch_ng::run_worker_thread),
+        (mod_en_allafrica::PLUGIN_NAME, mod_en_allafrica::run_worker_thread),
+        (mod_en_cnn::PLUGIN_NAME, mod_en_cnn::run_worker_thread),
+        (mod_en_foxnews::PLUGIN_NAME, mod_en_foxnews::run_worker_thread),
+        (mod_en_usatoday::PLUGIN_NAME, mod_en_usatoday::run_worker_thread),
+        (mod_en_cnbc::PLUGIN_NAME, mod_en_cnbc::run_worker_thread),
+        (mod_en_marketwatch::PLUGIN_NAME, mod_en_marketwatch::run_worker_thread),
+        (mod_en_business_insider::PLUGIN_NAME, mod_en_business_insider::run_worker_thread),
+        (mod_en_washingtonpost::PLUGIN_NAME, mod_en_washingtonpost::run_worker_thread),
+        (mod_en_latimes::PLUGIN_NAME, mod_en_latimes::run_worker_thread),
+        (mod_en_chicago_tribune::PLUGIN_NAME, mod_en_chicago_tribune::run_worker_thread),
+        (mod_en_theverge::PLUGIN_NAME, mod_en_theverge::run_worker_thread),
+        (mod_en_arstechnica::PLUGIN_NAME, mod_en_arstechnica::run_worker_thread),
+        (mod_en_cnet::PLUGIN_NAME, mod_en_cnet::run_worker_thread),
+        (mod_en_sg_straitstimes::PLUGIN_NAME, mod_en_sg_straitstimes::run_worker_thread),
+        (mod_en_sg_cna::PLUGIN_NAME, mod_en_sg_cna::run_worker_thread),
+        (mod_en_th_bangkokpost::PLUGIN_NAME, mod_en_th_bangkokpost::run_worker_thread),
+        (mod_en_fortune::PLUGIN_NAME, mod_en_fortune::run_worker_thread),
+        (mod_en_techcrunch::PLUGIN_NAME, mod_en_techcrunch::run_worker_thread),
+        (mod_en_wired::PLUGIN_NAME, mod_en_wired::run_worker_thread),
+        (mod_en_ca_cbc::PLUGIN_NAME, mod_en_ca_cbc::run_worker_thread),
+        (mod_en_ca_globeandmail::PLUGIN_NAME, mod_en_ca_globeandmail::run_worker_thread),
+        (mod_en_au_smh::PLUGIN_NAME, mod_en_au_smh::run_worker_thread),
+        (mod_en_au_abc::PLUGIN_NAME, mod_en_au_abc::run_worker_thread),
+        (mod_en_in_irdai::PLUGIN_NAME, mod_en_in_irdai::run_worker_thread),
+        (mod_en_in_sebi::PLUGIN_NAME, mod_en_in_sebi::run_worker_thread),
+        (mod_in_nse::PLUGIN_NAME, mod_in_nse::run_worker_thread),
+        (mod_in_bse::PLUGIN_NAME, mod_in_bse::run_worker_thread),
+    ];
+
     for plugin in plugins_configured {
-
         match plugin.into_table() {
-
             Ok(plugin_map) => {
-
-                let (plugin_name, plugin_type, plugin_enabled, priority) =
+                let (plugin_name, _plugin_type, plugin_enabled, priority) =
                     extract_plugin_params(plugin_map);
-
-                // check value of plugin to invoke the relevant module:
-                match plugin_name.as_str() {
-                    mod_en_in_rbi::PLUGIN_NAME => {
-                        retriever_plugins.push(
-                            RetrieverPlugin {
-                                name: plugin_name,
-                                priority: priority,
-                                enabled: plugin_enabled,
-                                method: mod_en_in_rbi::run_worker_thread,
-                            }
-                        );
-                        continue;
-                    },
-                    mod_en_in_business_standard::PLUGIN_NAME => {
-                        retriever_plugins.push(
-                            RetrieverPlugin {
-                                name: plugin_name,
-                                priority: priority,
-                                enabled: plugin_enabled,
-                                method: mod_en_in_business_standard::run_worker_thread,
-                            }
-                        );
-                        continue;
-                    },
-                    mod_offline_docs::PLUGIN_NAME => {
-                        retriever_plugins.push(
-                            RetrieverPlugin {
-                                name: plugin_name,
-                                priority: priority,
-                                enabled: plugin_enabled,
-                                method: mod_offline_docs::run_worker_thread,
-                            }
-                        );
-                        continue;
-                    },
-                    mod_en_in_thehindu::PLUGIN_NAME => {
+                match registry.iter().find(|(name, _)| *name == plugin_name.as_str()) {
+                    Some((_, method)) => {
                         retriever_plugins.push(RetrieverPlugin {
                             name: plugin_name,
                             priority,
                             enabled: plugin_enabled,
-                            method: mod_en_in_thehindu::run_worker_thread,
+                            method: *method,
                         });
-                        continue;
-                    },
-                    mod_en_in_ndtv::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_ndtv::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_livemint::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_livemint::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_moneycontrol::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_moneycontrol::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_timesofindia::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_timesofindia::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_forbes::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_forbes::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_reuters::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_reuters::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_bbc::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_bbc::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_guardian::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_guardian::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_bloomberg::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_bloomberg::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_ap_news::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_ap_news::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_indianexpress::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_indianexpress::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_yahoo_news::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_yahoo_news::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_hindustan_times::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_hindustan_times::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_news18::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_news18::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_aljazeera::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_aljazeera::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_nhk_world::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_nhk_world::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_arab_news::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_arab_news::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_gulf_news::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_gulf_news::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_khaleej_times::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_khaleej_times::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_the_national::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_the_national::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_news24::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_news24::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_guardian_ng::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_guardian_ng::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_punch_ng::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_punch_ng::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_allafrica::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_allafrica::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_cnn::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_cnn::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_foxnews::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_foxnews::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_usatoday::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_usatoday::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_cnbc::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_cnbc::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_marketwatch::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_marketwatch::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_business_insider::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_business_insider::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_washingtonpost::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_washingtonpost::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_latimes::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_latimes::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_chicago_tribune::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_chicago_tribune::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_theverge::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_theverge::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_arstechnica::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_arstechnica::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_cnet::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_cnet::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_sg_straitstimes::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_sg_straitstimes::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_sg_cna::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_sg_cna::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_th_bangkokpost::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_th_bangkokpost::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_fortune::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_fortune::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_techcrunch::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_techcrunch::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_wired::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_wired::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_ca_cbc::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_ca_cbc::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_ca_globeandmail::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_ca_globeandmail::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_au_smh::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_au_smh::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_au_abc::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_au_abc::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_irdai::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_irdai::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_en_in_sebi::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_en_in_sebi::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_in_nse::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_in_nse::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    mod_in_bse::PLUGIN_NAME => {
-                        retriever_plugins.push(RetrieverPlugin {
-                            name: plugin_name,
-                            priority,
-                            enabled: plugin_enabled,
-                            method: mod_in_bse::run_worker_thread,
-                        });
-                        continue;
-                    },
-                    // add additional retrievers here:
-                    _ => {
-                        debug!("Unknown plugin specified in config file: {}", plugin_name.as_str())
                     }
+                    None => debug!("Unknown or non-retriever plugin in config (skipped here): {}", plugin_name),
                 }
             }
-            Err(e) => {error!("When loading retriever plugin from config, error was: {}", e)}
+            Err(e) => { error!("When loading retriever plugin from config, error was: {}", e) }
         }
     }
     return retriever_plugins;

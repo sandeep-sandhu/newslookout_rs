@@ -96,6 +96,10 @@ pub fn make_http_client(netw_params: &NetworkParameters) -> reqwest::blocking::C
         .user_agent(netw_params.user_agent.clone())
         .default_headers(headers)
         .gzip(true)
+        // Persist cookies across requests within this client. Sites such as NSE/BSE set
+        // session cookies on the landing page that are required for subsequent API/file
+        // requests; without a cookie store those requests are served an HTML error page.
+        .cookie_store(true)
         .pool_idle_timeout(Duration::from_secs(pool_idle_timeout))
         .pool_max_idle_per_host(pool_max_idle_connections);
 
@@ -203,28 +207,73 @@ pub fn http_get_binary(website_url: &String, client: &reqwest::blocking::Client)
     return bytes::Bytes::new();
 }
 
+/// Returns true for HTTP status codes that are worth retrying.
+/// Permanent client errors (4xx) are not retried, with the exception of
+/// 408 (Request Timeout) and 429 (Too Many Requests). Server errors (5xx) are retried.
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    if status.is_server_error() {
+        return true;
+    }
+    matches!(status.as_u16(), 408 | 429)
+}
+
+/// Cheap dependency-free jitter in the range [0, 1000) milliseconds, derived from the
+/// system clock's sub-second component. Spreads out retries to avoid a thundering herd.
+fn backoff_jitter_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| (d.subsec_nanos() as u64) % 1000)
+        .unwrap_or(0)
+}
+
 pub fn http_get(website_url: &String, client: &reqwest::blocking::Client, retry_times: usize, wait_time: usize) -> String {
 
-    for attempt_no in 0..retry_times {
+    let max_attempts = retry_times.max(1);
 
-        log::info!("HTTP GET waiting for {} sec", wait_time);
-        thread::sleep(Duration::from_secs(wait_time as u64));
+    for attempt_no in 0..max_attempts {
+
+        // Politeness delay before the first request; exponential backoff (capped) before retries.
+        let sleep_secs = if attempt_no == 0 {
+            wait_time as u64
+        } else {
+            let backoff = (wait_time as u64).saturating_mul(1u64 << attempt_no.min(5));
+            backoff.min(60)
+        };
+        if sleep_secs > 0 {
+            log::debug!("HTTP GET waiting for {} sec before attempt {}", sleep_secs, attempt_no + 1);
+            thread::sleep(Duration::from_secs(sleep_secs));
+            if attempt_no > 0 {
+                thread::sleep(Duration::from_millis(backoff_jitter_ms()));
+            }
+        }
 
         let req_builder = client.get(website_url);
         match req_builder.send() {
             Ok(resp) => {
-                match resp.text() {
-                    Ok(http_response_body_text) => {
-                        log::debug!("From HTTP response, got text of length: {}", http_response_body_text.len());
-                        return http_response_body_text;
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.text() {
+                        Ok(http_response_body_text) => {
+                            log::debug!("From HTTP response, got text of length: {}", http_response_body_text.len());
+                            return http_response_body_text;
+                        }
+                        Err(ex) => {
+                            log::error!("HTTP GET attempt {}: status {} but failed to read body of {}: {:?}",
+                                attempt_no + 1, status, website_url, ex.to_string());
+                        }
                     }
-                    Err(ex) => {
-                        log::error!("HTTP GET failed attempt no {}: When retrieving {}, error: {:?}", attempt_no+1, website_url, ex.to_string());
-                    }
+                } else if is_retryable_status(status) {
+                    log::warn!("HTTP GET attempt {}: retryable status {} for {}",
+                        attempt_no + 1, status, website_url);
+                } else {
+                    // Permanent error (e.g. 403, 404, 410): do not retry.
+                    log::warn!("HTTP GET: non-retryable status {} for {} — giving up.", status, website_url);
+                    return String::from("");
                 }
             }
             Err(e) => {
-                log::error!("HTTP GET failed attempt no {}: When retrieving url {}: {:?}", attempt_no, website_url, e.to_string());
+                log::error!("HTTP GET failed attempt no {}: When retrieving url {}: {:?}", attempt_no + 1, website_url, e.to_string());
             }
         }
     }
@@ -235,11 +284,42 @@ pub fn http_get(website_url: &String, client: &reqwest::blocking::Client, retry_
 
 #[cfg(test)]
 mod tests {
-    use crate::network;
+    use super::*;
+    use reqwest::StatusCode;
 
     #[test]
-    fn test_1() {
-        // TODO: implement this
-        assert_eq!(1, 1);
+    fn test_server_errors_are_retryable() {
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+        assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_status(StatusCode::GATEWAY_TIMEOUT));
+    }
+
+    #[test]
+    fn test_rate_limit_and_timeout_are_retryable() {
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));      // 429
+        assert!(is_retryable_status(StatusCode::REQUEST_TIMEOUT));        // 408
+    }
+
+    #[test]
+    fn test_permanent_client_errors_not_retryable() {
+        assert!(!is_retryable_status(StatusCode::FORBIDDEN));             // 403
+        assert!(!is_retryable_status(StatusCode::NOT_FOUND));             // 404
+        assert!(!is_retryable_status(StatusCode::GONE));                  // 410
+        assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));          // 401
+    }
+
+    #[test]
+    fn test_success_is_not_retryable() {
+        // success codes never go through the retry path
+        assert!(!is_retryable_status(StatusCode::OK));
+        assert!(!is_retryable_status(StatusCode::NO_CONTENT));
+    }
+
+    #[test]
+    fn test_backoff_jitter_within_bounds() {
+        for _ in 0..100 {
+            assert!(backoff_jitter_ms() < 1000);
+        }
     }
 }

@@ -91,13 +91,11 @@ fn existing_zip_entries(zip_path: &Path) -> HashSet<String> {
     };
     match zip::ZipArchive::new(file) {
         Ok(mut archive) => {
-            (0..archive.len()).for_each(|i| {
+            for i in 0..archive.len() {
                 if let Ok(entry) = archive.by_index_raw(i) {
-                    if let Ok(name) = entry.name() {
-                        names.insert(name.into_owned());
-                    }
+                    names.insert(entry.name().to_string());
                 }
-            });
+            }
         }
         Err(e) => {
             warn!("Could not read zip archive {:?}: {}", zip_path, e);

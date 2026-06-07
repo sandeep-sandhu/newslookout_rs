@@ -150,7 +150,7 @@ mod tests {
         sample calculation\n\n \nLot of more words that should not be split at all page 2 and\
         still more words\n ");
         check_and_split_text(&mut test_rbi_doc, 2, 1, false);
-        assert_eq!(test_rbi_doc.text_parts[0].get("text").unwrap().as_str().unwrap(), String::from(" v4n57yp 9m934u"));
+        assert_eq!(test_rbi_doc.text_parts[0].get("text").unwrap().as_str().unwrap(), String::from("v4n57yp 9m934u"));
         assert_eq!(test_rbi_doc.text_parts[1].get("text").unwrap().as_str().unwrap(), String::from("9m934u Dear sir madam, "));
         assert_eq!(test_rbi_doc.text_parts[2].get("text").unwrap().as_str().unwrap(), String::from("madam,   Appendix 232\n blah more blah and some extraa text to go along"));
         assert_eq!(test_rbi_doc.text_parts[3].get("text").unwrap().as_str().unwrap(), String::from("along  Annexure 111\nsample calculation calculation Lot of more words that should not be split at all page 2 andstill more words\n "));

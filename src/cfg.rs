@@ -229,8 +229,10 @@ macro_rules! get_plugin_cfg {
                                                 break 'searchloop;
                                             },
                                             None => {
-                                                error!(
-                                                    "Plugin {}: When retrieving value for key {}",
+                                                // Optional key not set for this plugin; callers
+                                                // supply their own default, so this is not an error.
+                                                log::debug!(
+                                                    "Plugin {}: no value for optional key '{}', caller will use default",
                                                     $plugin_name, $config_key
                                                 );
                                                 break 'searchloop;

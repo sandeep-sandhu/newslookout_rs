@@ -203,6 +203,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "stub test — requires live LLM API key"]
     fn test_llm_gen_api_call(){
         /*
         let example_cfg = cfg::read_config_from_file("conf/newslookout.toml".to_string());

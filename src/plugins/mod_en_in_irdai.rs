@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::panic;
 use std::panic::AssertUnwindSafe;
 use chrono::NaiveDate;
-use log::{error, info};
+use log::{error, info, warn, debug};
 use rand::{Rng, RngExt};
 use regex::Regex;
 use scraper::ElementRef;
@@ -237,13 +237,21 @@ fn extract_docinfo_from_row(row_each: ElementRef, source_url: &String) -> Docume
 
     for date_div_elem in row_each.select(&date_selector) {
         let date_str = clean_text(date_div_elem.inner_html());
-        match NaiveDate::parse_from_str(date_str.as_str(), "%d-%m-%Y") {
+        // IRDAI listing rows frequently use placeholders ("--", "", "N/A") when no date is
+        // published yet. Treat these as "date not available" and skip silently rather than
+        // emitting an error for every such row.
+        let trimmed = date_str.trim();
+        if trimmed.is_empty() || trimmed.chars().all(|c| !c.is_ascii_digit()) {
+            debug!("{}: No usable publish date in row (value: '{}'), leaving date unset.", PLUGIN_NAME, trimmed);
+            continue;
+        }
+        match NaiveDate::parse_from_str(trimmed, "%d-%m-%Y") {
             Ok(naive_date) => {
                 this_new_doc.publish_date_ms = to_local_datetime(naive_date).timestamp();
                 this_new_doc.publish_date = naive_date.format("%Y-%m-%d").to_string();
             },
             Err(date_err) => {
-                error!("{}: Could not parse date '{}', error: {}", PLUGIN_NAME, date_str.as_str(), date_err)
+                warn!("{}: Could not parse date '{}', error: {}", PLUGIN_NAME, trimmed, date_err)
             }
         }
     }

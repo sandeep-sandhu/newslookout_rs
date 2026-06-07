@@ -228,11 +228,12 @@ use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWin
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::encode::pattern::PatternEncoder;
-use log4rs::config::{Appender, Root};
+use log4rs::config::{Appender, Logger, Root};
 use log4rs::filter::threshold::ThresholdFilter;
 use crate::pipeline::{load_dataproc_plugins, load_retriever_plugins, RetrieverPlugin, start_data_pipeline, create_api_mutexes};
 
 pub mod plugins {
+    pub mod html_news;
     pub mod mod_en_in_indiankanoon;
     pub(crate) mod mod_en_in_rbi;
     pub(crate) mod mod_en_in_business_standard;
@@ -303,6 +304,7 @@ pub mod plugins {
 }
 
 pub mod network;
+pub mod discovery;
 pub mod utils;
 pub mod llm;
 pub mod document;
@@ -437,12 +439,25 @@ pub fn init_logging(config: Arc<config::Config>){
                 Err(e) => { println!("ERROR: Could not create rolling log appender for '{}': {}", logfile, e); return; }
             };
 
-            let logconfig = match log4rs::config::Config::builder()
+            // Noisy third-party crates emit WARN-level messages during HTML parsing
+            // (e.g. html5ever's "foster parenting not implemented", which accounted for
+            // ~79% of all warnings in production logs). Cap these dependencies at ERROR
+            // so they never reach the appender, regardless of the app log level.
+            let noisy_modules = ["html5ever", "markup5ever", "selectors", "html5ever::tree_builder"];
+
+            let mut logconfig_builder = log4rs::config::Config::builder()
                 .appender(
                     Appender::builder()
                         .filter(Box::new(ThresholdFilter::new(app_loglevel)))
                         .build("logfile", Box::new(rolling_appender))
-                )
+                );
+            for module in noisy_modules {
+                logconfig_builder = logconfig_builder.logger(
+                    Logger::builder().build(module, LevelFilter::Error)
+                );
+            }
+
+            let logconfig = match logconfig_builder
                 .build(
                     Root::builder()
                         .appender("logfile")

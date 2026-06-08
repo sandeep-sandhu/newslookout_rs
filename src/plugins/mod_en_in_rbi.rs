@@ -57,10 +57,20 @@ fn resolve_url(href: &str, section_url: &str) -> String {
 }
 
 /// Parse an RBI date header string into "YYYY-MM-DD".
-/// Tries "Month DD, YYYY" (Notifications) and "DD Month YYYY" (WSS).
+/// The live site uses several formats across sections:
+///   - "Jun 10, 2026"   (abbreviated month + comma) — Notifications/Press Releases (most common)
+///   - "June 10, 2026"  (full month + comma)
+///   - "10 June 2026"   (day-first, full month) — WSS pages
+///   - "10 Jun 2026"    (day-first, abbreviated month)
+/// NOTE: trailing comma is trimmed before parsing, so the "%b %d %Y" (no-comma) variants also
+/// match the comma forms; both are listed for clarity/robustness.
 fn parse_rbi_date(raw: &str) -> Option<String> {
     let s = raw.trim().trim_matches(|c: char| c == ',' || c == '.' || c.is_whitespace());
-    for fmt in &["%B %d, %Y", "%d %B %Y", "%d %b %Y", "%B %d %Y"] {
+    for fmt in &[
+        "%b %d, %Y", "%b %d %Y",   // Jun 10, 2026  /  Jun 10 2026
+        "%B %d, %Y", "%B %d %Y",   // June 10, 2026 /  June 10 2026
+        "%d %B %Y", "%d %b %Y",    // 10 June 2026  /  10 Jun 2026
+    ] {
         if let Ok(d) = NaiveDate::parse_from_str(s, fmt) {
             return Some(d.format("%Y-%m-%d").to_string());
         }
@@ -445,6 +455,19 @@ mod tests {
     fn test_parse_date_wss_format() {
         assert_eq!(parse_rbi_date("15 May 2026"), Some("2026-05-15".to_string()));
         assert_eq!(parse_rbi_date("01 January 2026"), Some("2026-01-01".to_string()));
+        assert_eq!(parse_rbi_date("10 Jun 2026"), Some("2026-06-10".to_string()));
+    }
+
+    // Regression: the live RBI Notifications/Press-Release listing uses abbreviated months
+    // with a comma ("Jun 10, 2026"). Before the fix this failed to parse, leaving
+    // publish_date = 1970-01-01 so mod_filter dropped every RBI document.
+    #[test]
+    fn test_parse_date_abbreviated_month_comma() {
+        assert_eq!(parse_rbi_date("Jun 10, 2026"), Some("2026-06-10".to_string()));
+        assert_eq!(parse_rbi_date("Jan 1, 2026"), Some("2026-01-01".to_string()));
+        assert_eq!(parse_rbi_date("Dec 31, 2025"), Some("2025-12-31".to_string()));
+        // header cells often carry surrounding whitespace
+        assert_eq!(parse_rbi_date("  Jun 10, 2026  "), Some("2026-06-10".to_string()));
     }
 
     #[test]
@@ -515,6 +538,7 @@ mod tests {
             wait_time_min: 0, wait_time_max: 0,
             fetch_timeout: 10, connect_timeout: 10,
             proxy_server: None, referrer_url: None,
+            respect_robots_txt: true, min_host_interval_sec: None,
         };
         let client = reqwest::blocking::Client::new();
         let n = get_docs_from_listing_page(
@@ -548,6 +572,7 @@ mod tests {
             wait_time_min: 0, wait_time_max: 0,
             fetch_timeout: 10, connect_timeout: 10,
             proxy_server: None, referrer_url: None,
+            respect_robots_txt: true, min_host_interval_sec: None,
         };
         let client = reqwest::blocking::Client::new();
         let n = get_docs_from_listing_page(

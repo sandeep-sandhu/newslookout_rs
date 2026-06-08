@@ -20,6 +20,12 @@ pub struct NetworkParameters{
     pub connect_timeout: usize,
     pub proxy_server: Option<String>,
     pub referrer_url: Option<String>,
+    /// Global toggle for honoring robots.txt; can be turned off via config `respect_robots_txt = false`.
+    /// Per-site `SiteConfig::respect_robots` settings are still ANDed with this.
+    pub respect_robots_txt: bool,
+    /// Minimum number of seconds to wait between consecutive fetches to the same host.
+    /// Overrides the default (`wait_time_min`) when set via config `min_host_interval_sec`.
+    pub min_host_interval_sec: Option<usize>,
 }
 
 pub fn read_network_parameters(app_config: &config::Config) -> NetworkParameters {
@@ -32,6 +38,8 @@ pub fn read_network_parameters(app_config: &config::Config) -> NetworkParameters
         connect_timeout: 60,
         proxy_server: None,
         referrer_url: None,
+        respect_robots_txt: true,
+        min_host_interval_sec: None,
     };
 
     match app_config.get_int("fetch_timeout") {
@@ -63,6 +71,26 @@ pub fn read_network_parameters(app_config: &config::Config) -> NetworkParameters
         },
         Err(e) => {
             info!("Could not identify proxy server url from config, not using proxy, message: {:?}", e)
+        }
+    }
+
+    match app_config.get_bool("respect_robots_txt") {
+        Ok(respect_flag) => {
+            net_params.respect_robots_txt = respect_flag;
+        },
+        Err(_) => {
+            info!("Using default of respecting robots.txt (set respect_robots_txt = false in config to disable)");
+        }
+    }
+
+    match app_config.get_int("min_host_interval_sec") {
+        Ok(interval_secs) => {
+            if interval_secs >= 0 {
+                net_params.min_host_interval_sec = Some(interval_secs as usize);
+            }
+        },
+        Err(_) => {
+            info!("Using default per-host crawl interval (set min_host_interval_sec in config to override)");
         }
     }
 
@@ -248,10 +276,14 @@ pub fn http_get(website_url: &String, client: &reqwest::blocking::Client, retry_
             }
         }
 
+        if attempt_no > 0 {
+            crate::metrics::record_http_retry();
+        }
         let req_builder = client.get(website_url);
         match req_builder.send() {
             Ok(resp) => {
                 let status = resp.status();
+                crate::metrics::record_http_status(status.as_u16());
                 if status.is_success() {
                     match resp.text() {
                         Ok(http_response_body_text) => {
@@ -273,6 +305,7 @@ pub fn http_get(website_url: &String, client: &reqwest::blocking::Client, retry_
                 }
             }
             Err(e) => {
+                crate::metrics::record_http_transport_error();
                 log::error!("HTTP GET failed attempt no {}: When retrieving url {}: {:?}", attempt_no + 1, website_url, e.to_string());
             }
         }

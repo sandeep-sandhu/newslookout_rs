@@ -26,6 +26,10 @@ pub struct PipelineStatus {
     pub data_processor_plugin_names: Vec<String>,
     /// Plugins that have completed (name → doc count string).
     pub completed_plugins: Vec<(String, usize)>,
+    /// Approximate queue depths for the dashboard (0 when not tracked).
+    pub db_queue_size: usize,
+    pub fetch_queue_size: usize,
+    pub process_queue_size: usize,
 }
 
 impl PipelineStatus {
@@ -42,9 +46,15 @@ impl PipelineStatus {
             retriever_plugin_names: Vec::new(),
             data_processor_plugin_names: Vec::new(),
             completed_plugins: Vec::new(),
+            db_queue_size: 0,
+            fetch_queue_size: 0,
+            process_queue_size: 0,
         }
     }
 }
+
+/// Application version reported to the dashboard.
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub type SharedStatus = Arc<Mutex<PipelineStatus>>;
 
@@ -91,6 +101,7 @@ fn handle_connection(mut stream: std::net::TcpStream, status: SharedStatus) {
         "/health" => health_response(),
         "/status" => status_response(&status),
         "/status/summary" => summary_response(&status),
+        "/metrics" => metrics_response(),
         "/dashboard.html" => dashboard_response(),
         _ => (
             "HTTP/1.1 404 Not Found",
@@ -126,36 +137,114 @@ fn health_response() -> (&'static str, &'static str, String) {
 
 fn status_response(status: &SharedStatus) -> (&'static str, &'static str, String) {
     let st = status.lock().unwrap();
-    let elapsed = Utc::now().signed_duration_since(st.start_time);
-
-    // Build JSON array of retriever names
-    let retriever_names: Vec<String> = st.retriever_plugin_names.iter()
-        .map(|n| format!("\"{}\"", n))
-        .collect();
-    let processor_names: Vec<String> = st.data_processor_plugin_names.iter()
-        .map(|n| format!("\"{}\"", n))
-        .collect();
-    let completed: Vec<String> = st.completed_plugins.iter()
-        .map(|(n, cnt)| format!("{{\"name\":\"{}\",\"docs\":{}}}", n, cnt))
-        .collect();
-
-    let body = format!(
-        r#"{{"timestamp":"{ts}","application":{{"name":"NewsLookout","version":"0.5.0","is_running":{running},"start_time":"{start}","elapsed_seconds":{elapsed}}},"plugins":{{"retrievers":{{"total":{rt},"enabled":{re},"names":[{rnames}]}},"data_processors":{{"total":{dt},"enabled":{de},"names":[{pnames}]}},"completed":[{comp}]}},"documents":{{"retrieved":{dr},"processed":{dp}}}}}"#,
-        ts      = Utc::now().to_rfc3339(),
-        running = st.is_running,
-        start   = st.start_time.to_rfc3339(),
-        elapsed = elapsed.num_seconds(),
-        rt = st.retrievers_total,
-        re = st.retrievers_enabled,
-        rnames = retriever_names.join(","),
-        dt = st.data_processors_total,
-        de = st.data_processors_enabled,
-        pnames = processor_names.join(","),
-        comp = completed.join(","),
-        dr = st.docs_retrieved,
-        dp = st.docs_processed,
-    );
+    let body = build_status_json(&st);
     ("HTTP/1.1 200 OK", "application/json", body)
+}
+
+/// Build the dashboard `/status` JSON. The schema matches the fields the bundled
+/// dashboard's JS reads: application / performance / queues / workers / database /
+/// plugins. Per-plugin URL-level counts are populated as far as the pipeline currently
+/// tracks them (completed-plugin doc counts); finer telemetry can be layered on later.
+fn build_status_json(st: &PipelineStatus) -> String {
+    use std::collections::HashMap;
+    let elapsed = Utc::now().signed_duration_since(st.start_time).num_seconds();
+
+    // name -> processed doc count, from completed plugins.
+    let processed_by: HashMap<&str, usize> =
+        st.completed_plugins.iter().map(|(n, c)| (n.as_str(), *c)).collect();
+    let is_completed = |name: &str| processed_by.contains_key(name);
+
+    // Performance panels.
+    let retr_total = st.retrievers_enabled.max(1);
+    let retr_done = st.retriever_plugin_names.iter().filter(|n| is_completed(n)).count();
+    let url_disc_pct = (retr_done as f64) / (retr_total as f64) * 100.0;
+    let dp_total = st.docs_retrieved.max(st.docs_processed);
+    let dp_pct = if dp_total > 0 { (st.docs_processed as f64) / (dp_total as f64) * 100.0 } else { 0.0 };
+
+    // Worker views.
+    let worker_pairs: Vec<serde_json::Value> = st.retriever_plugin_names.iter().map(|name| {
+        serde_json::json!({
+            "plugin": name,
+            "url_worker_alive": st.is_running && !is_completed(name),
+            "content_worker_alive": st.is_running && !is_completed(name),
+            "url_discovery_complete": is_completed(name),
+        })
+    }).collect();
+    let data_workers: Vec<serde_json::Value> = st.data_processor_plugin_names.iter().map(|name| {
+        serde_json::json!({ "name": name, "is_alive": st.is_running })
+    }).collect();
+
+    // Plugin tables.
+    let content_plugins: Vec<serde_json::Value> = st.retriever_plugin_names.iter().map(|name| {
+        let processed = *processed_by.get(name.as_str()).unwrap_or(&0);
+        serde_json::json!({
+            "name": name,
+            "total_urls": processed,
+            "processed_urls": processed,
+        })
+    }).collect();
+    let data_processing: Vec<serde_json::Value> = st.data_processor_plugin_names.iter().map(|name| {
+        let processed = *processed_by.get(name.as_str()).unwrap_or(&0);
+        serde_json::json!({
+            "name": name,
+            "urls_input": st.docs_retrieved,
+            "urls_processed": processed,
+        })
+    }).collect();
+
+    let m = crate::metrics::snapshot();
+
+    let v = serde_json::json!({
+        "timestamp": Utc::now().to_rfc3339(),
+        "application": {
+            "name": "NewsLookout",
+            "version": APP_VERSION,
+            "is_running": st.is_running,
+            "start_time": st.start_time.to_rfc3339(),
+            "elapsed_seconds": elapsed,
+        },
+        "performance": {
+            "url_discovery": {
+                "progress_percent": url_disc_pct,
+                "plugins_completed": retr_done,
+                "plugins_total": st.retrievers_enabled,
+            },
+            "content_fetching": {
+                "progress_percent": if st.docs_retrieved > 0 { 100.0 } else { 0.0 },
+                "completed": st.docs_retrieved,
+                "total": st.docs_retrieved,
+            },
+            "data_processing": {
+                "progress_percent": dp_pct,
+                "completed": st.docs_processed,
+                "total": dp_total,
+            },
+        },
+        "queues": {
+            "database_operations": { "size": st.db_queue_size },
+            "fetch_completed": { "size": st.fetch_queue_size },
+            "data_processing_input": { "size": st.process_queue_size },
+        },
+        "workers": {
+            "worker_pairs": worker_pairs,
+            "data_processing_workers": data_workers,
+        },
+        "database": {
+            "connection_status": "connected",
+            "http_errors": {
+                "HTTP_403": m.http_403,
+                "HTTP_404": m.http_404,
+                "HTTP_5xx": m.http_5xx,
+                "HTTP_timeouts": m.http_timeouts,
+                "HTTP_transport_errors": m.http_transport_errors,
+            },
+        },
+        "plugins": {
+            "content_plugins": content_plugins,
+            "data_processing": data_processing,
+        },
+    });
+    v.to_string()
 }
 
 fn summary_response(status: &SharedStatus) -> (&'static str, &'static str, String) {
@@ -172,7 +261,20 @@ fn summary_response(status: &SharedStatus) -> (&'static str, &'static str, Strin
     ("HTTP/1.1 200 OK", "application/json", body)
 }
 
+fn metrics_response() -> (&'static str, &'static str, String) {
+    let body = serde_json::to_string(&crate::metrics::snapshot())
+        .unwrap_or_else(|_| "{}".to_string());
+    ("HTTP/1.1 200 OK", "application/json", body)
+}
+
+/// Serve the bundled rich dashboard (compiled into the binary).
 fn dashboard_response() -> (&'static str, &'static str, String) {
+    let html = include_str!("web_dashboard.html");
+    ("HTTP/1.1 200 OK", "text/html; charset=utf-8", html.to_string())
+}
+
+#[allow(dead_code)]
+fn dashboard_response_legacy() -> (&'static str, &'static str, String) {
     let html = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -281,4 +383,53 @@ refresh();
 </body>
 </html>"#;
     ("HTTP/1.1 200 OK", "text/html; charset=utf-8", html.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_status_json_has_dashboard_contract() {
+        let mut st = PipelineStatus::new();
+        st.is_running = true;
+        st.retrievers_enabled = 2;
+        st.retriever_plugin_names = vec!["mod_en_in_rbi".into(), "mod_en_in_sebi".into()];
+        st.data_processor_plugin_names = vec!["mod_vectorstore".into()];
+        st.completed_plugins = vec![("mod_en_in_rbi".into(), 12)];
+        st.docs_retrieved = 30;
+        st.docs_processed = 18;
+
+        let body = build_status_json(&st);
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+
+        // Top-level contract keys the dashboard JS reads.
+        assert!(v["application"]["is_running"].as_bool().unwrap());
+        assert!(v["application"]["version"].is_string());
+        assert!(v["performance"]["url_discovery"]["progress_percent"].is_number());
+        assert!(v["queues"]["database_operations"]["size"].is_number());
+        assert!(v["workers"]["worker_pairs"].is_array());
+        assert!(v["workers"]["data_processing_workers"].is_array());
+        assert_eq!(v["database"]["connection_status"], "connected");
+        assert!(v["database"]["http_errors"]["HTTP_403"].is_number());
+
+        // content_plugins reflects completed counts.
+        let cps = v["plugins"]["content_plugins"].as_array().unwrap();
+        let rbi = cps.iter().find(|p| p["name"] == "mod_en_in_rbi").unwrap();
+        assert_eq!(rbi["processed_urls"], 12);
+
+        // one worker pair flagged complete (rbi), one still alive (sebi)
+        let pairs = v["workers"]["worker_pairs"].as_array().unwrap();
+        assert_eq!(pairs.len(), 2);
+        let rbi_pair = pairs.iter().find(|p| p["plugin"] == "mod_en_in_rbi").unwrap();
+        assert_eq!(rbi_pair["url_discovery_complete"], true);
+    }
+
+    #[test]
+    fn test_dashboard_html_is_bundled() {
+        let (_s, ct, body) = dashboard_response();
+        assert!(ct.contains("text/html"));
+        assert!(body.contains("NewsLookout"));
+        assert!(body.contains("/status"), "dashboard JS should call /status");
+    }
 }

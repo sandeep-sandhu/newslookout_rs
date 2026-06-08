@@ -147,12 +147,7 @@ impl HtmlExtractor {
         let baseline = BaselineExtractor::new(english_stopwords());
         let mut env = ArticleExtractionEnvironment::new(baseline, self.config.clone());
 
-        let mut state = match env.reset(
-            html,
-            url.to_string(),
-            None::<&str>,
-            None::<&SiteProfile>,
-        ) {
+        let mut state = match env.reset(html, url.to_string(), None::<&str>, None::<&SiteProfile>) {
             Ok(s) => s,
             Err(e) => {
                 debug!("RL env reset error: {}", e);

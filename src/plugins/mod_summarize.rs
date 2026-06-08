@@ -9,6 +9,7 @@ use log::{debug, error, info};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, InvalidHeaderName};
 use samvadsetu::llm::{LLMTextGenBuilder, LLMTextGenerator};
+use samvadsetu::types::ChatMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::{document, get_cfg, llm};
@@ -78,12 +79,12 @@ pub fn generate_text_using_llm(
     input_context_suffix: String,
 ) -> String {
 
-    llm_gen.user_prompt = user_prompt;
     if (input_context_prefix.len() + input_context_suffix.len()) > MIN_ACCEPTABLE_INPUT_CHARS {
-        let llm_gen_result = llm_gen.generate_text(
-            input_context_prefix.as_str(),
-            input_context_suffix.as_str()
-        );
+        let messages = [
+            ChatMessage::system(user_prompt),
+            ChatMessage::user(format!("{}{}", input_context_prefix, input_context_suffix)),
+        ];
+        let llm_gen_result = llm_gen.generate_text(&messages, None, None);
         if let Ok(llm_api_response) = llm_gen_result {
             return llm_api_response.generated_text
 

@@ -110,7 +110,10 @@ pub fn run(tx: Sender<Document>, app_config: Arc<Config>, site: &SiteConfig) {
         Err(_) => 0.1,
     };
 
-    let crawl_interval = Duration::from_secs(network_params.wait_time_min as u64);
+    // Per-host fetch interval: config `min_host_interval_sec` overrides the default `wait_time_min`.
+    let crawl_interval = Duration::from_secs(
+        network_params.min_host_interval_sec.unwrap_or(network_params.wait_time_min) as u64
+    );
     let mut robots_cache: HashMap<String, RobotsRules> = HashMap::new();
 
     // Build a unified, de-duplicated work list of (section, article_url) from both
@@ -153,7 +156,7 @@ pub fn run(tx: Sender<Document>, app_config: Arc<Config>, site: &SiteConfig) {
 
     for (section_name, article_url) in work {
         // Respect robots.txt.
-        if !allowed_by_robots(site, &mut robots_cache, &client, &article_url, network_params.wait_time_min) {
+        if !allowed_by_robots(site, &mut robots_cache, &client, &article_url, network_params.wait_time_min, network_params.respect_robots_txt) {
             info!("{}: Skipping (robots.txt disallow) url={}", site.plugin_name, article_url);
             continue;
         }
@@ -187,8 +190,11 @@ fn allowed_by_robots(
     client: &reqwest::blocking::Client,
     url: &str,
     wait_time: usize,
+    respect_robots_txt: bool,
 ) -> bool {
-    if !site.respect_robots {
+    // Both the global config toggle (`respect_robots_txt`) and the per-site setting
+    // must be enabled for robots.txt to be consulted.
+    if !site.respect_robots || !respect_robots_txt {
         return true;
     }
     let host = match discovery::host_of(url) {

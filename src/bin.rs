@@ -45,7 +45,9 @@ fn main() {
     }));
 
     if env::args().len() < 2 {
-        println!("Usage: newslookout_rs <config_file>");
+        println!("Usage:");
+        println!("  newslookout_app <config_file>          # run the news pipeline");
+        println!("  newslookout_app batch <config_file>    # run batch data feeds (NSE/BSE/...)");
         std::process::exit(1);
     }
 
@@ -55,7 +57,40 @@ fn main() {
     };
     println!("NewsLookout, version: {}", now);
 
-    run_pipeline();
+    // Subcommand dispatch: `batch <config>` runs the periodic data feeds (externally
+    // scheduled); the default (no subcommand) runs the news scraping pipeline.
+    if env::args().nth(1).as_deref() == Some("batch") {
+        if env::args().len() < 3 {
+            println!("Usage: newslookout_app batch <config_file>");
+            std::process::exit(1);
+        }
+        run_batch();
+    } else {
+        run_pipeline();
+    }
+}
+
+/// Run the batch-feed subsystem: initialise PID/logging/store, then run all enabled
+/// `batch_feed` plugins in parallel (one cron-friendly invocation). No news pipeline runs.
+fn run_batch() {
+    let config_file: String = env::args().nth(2).unwrap();
+    println!("Loading configuration from file: {}", config_file);
+
+    let config = read_config_from_file(config_file);
+    let configref = Arc::new(config);
+    println!("Initializing PID file...");
+    init_pid_file(configref.clone());
+    println!("Initializing logging...");
+    init_logging(configref.clone());
+
+    let db_path = newslookout::cfg::get_market_data_db(&configref);
+    // Ensure the metadata/market schema (incl. batch_run_log) exists before feeds run.
+    newslookout::store::init_at_startup(&db_path);
+
+    let executed = newslookout::feeds::run_batch_feeds(configref.clone(), &db_path);
+    println!("Batch feeds completed: {} feed(s) executed.", executed);
+
+    cleanup_pid_file(configref);
 }
 
 
@@ -71,6 +106,11 @@ fn run_pipeline(){
     init_pid_file(configref.clone());
     println!("Initializing logging...");
     init_logging(configref.clone());
+
+    // Initialise / migrate the canonical relational schema (store layer) before the pipeline
+    // runs, so structured-intelligence tables exist for the extractor and emitter plugins.
+    let db_path = newslookout::cfg::get_database_filename(&configref);
+    newslookout::store::init_at_startup(&db_path);
 
     let rl_model_path = configref.get_string("rl_model_path").ok();
     info!("Initializing content extractor (model path: {:?})...", rl_model_path);

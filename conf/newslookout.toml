@@ -74,6 +74,15 @@ retry_count = 3
 # between two web fetches to the same URL 
 retry_wait_fixed_sec = 3
 
+# whether to honor each site's robots.txt rules before fetching article URLs.
+# set to false to ignore robots.txt (per-site plugins may still hard-disable this individually)
+respect_robots_txt = true
+
+# minimum number of seconds to wait between consecutive fetches to the SAME host,
+# shared across all retriever threads (per-host politeness throttle).
+# if not set, defaults to retry_wait_fixed_sec (the same value used for retry backoff).
+min_host_interval_sec = 3
+
 # should raw html be saved as compressed bzipped files?
 save_html=true
 #save_html=false
@@ -97,7 +106,7 @@ logfile_backup_count=30
 
 # Web API status server - set enabled=true to expose pipeline stats over HTTP
 web_api_enabled=true
-web_api_host="127.0.0.1"
+web_api_host="10.13.31.111"
 web_api_port=8080
 
 # In this section, list the names of all modules to be enabled:
@@ -105,42 +114,35 @@ web_api_port=8080
 # A lower number indicates higher priority, so it will be run before others are run
 plugins = [
  # data providers and govt. portals
-   {"enabled"=true, "name"="mod_en_in_sebi", "type"="retriever", "priority"=1}
+ {"enabled"=true, "name"="mod_en_in_sebi", "type"="retriever", "priority"=1}
  , {"enabled"=true, "name"="mod_en_in_irdai", "type"="retriever", "priority"=1}
  , {"enabled"=true, "name"="mod_en_in_rbi", "type"="retriever", "priority"=1, "max_pages"=10, "items_per_page"=10}
  , {"enabled"=true, "name"="mod_in_nse", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_in_bse", "type"="retriever", "priority"=2}
-# Indian news:
- , {"enabled"=true, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
+ # Indian news:
  , {"enabled"=true, "name"="mod_en_in_timesofindia", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_indiankanoon", "type"="retriever", "priority"=5}
  , {"enabled"=true, "name"="mod_en_in_trak", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_thehindu", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_in_ndtv", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_indianexpress", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_hindustan_times", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_news18", "type"="retriever", "priority"=3}
-# World news
+ # World news
  , {"enabled"=true, "name"="mod_en_huffingtonpost", "type"="retriever", "priority"=5}
  , {"enabled"=true, "name"="mod_en_bbc", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_guardian", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_ap_news", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_yahoo_news", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_news24", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_allafrica", "type"="retriever", "priority"=3}
-# west asia news:
+ # west asia news:
  , {"enabled"=true, "name"="mod_en_aljazeera", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_arab_news", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_gulf_news", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_khaleej_times", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_the_national", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_guardian_ng", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_punch_ng", "type"="retriever", "priority"=3}
  # USA major news
  , {"enabled"=true, "name"="mod_en_cnn", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_foxnews", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_usatoday", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_washingtonpost", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_latimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_chicago_tribune", "type"="retriever", "priority"=3}
  # Business / Tech
@@ -151,10 +153,7 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_in_forbes", "type"="retriever", "priority"=4}
  , {"enabled"=true, "name"="mod_en_in_ecotimes", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_in_moneycontrol", "type"="retriever", "priority"=3}
- , {"enabled"=true, "name"="mod_en_reuters", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_bloomberg", "type"="retriever", "priority"=2}
  , {"enabled"=true, "name"="mod_en_cnbc", "type"="retriever", "priority"=2}
- , {"enabled"=true, "name"="mod_en_marketwatch", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_business_insider", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_fortune", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_techcrunch", "type"="retriever", "priority"=3}
@@ -173,11 +172,10 @@ plugins = [
  , {"enabled"=true, "name"="mod_en_th_bangkokpost", "type"="retriever", "priority"=3}
  , {"enabled"=true, "name"="mod_en_nhk_world", "type"="retriever", "priority"=3}
  # data providers and data processing plugins:
- , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=999999}
-# , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="pdf", "folder_name"="data/pdf_files", "published_in_past_days"=999999}
+ # , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="json", "folder_name"="data/files", "published_in_past_days"=999999}
+ # , {"enabled"=true, "name"="mod_offline_docs", "type"="retriever", "priority"=3, "file_extension"="pdf", "folder_name"="data/pdf_files", "published_in_past_days"=999999}
  # the following are data processing plugins that will be run serially, in order of priority:
  # A lower number indicates higher priority, so it will be run before others are run
- , {"enabled"=true, "name"="split_text", "type"="data_processor", "priority"=1, "overwrite"=false, "min_word_limit_to_split"=700, "previous_part_overlap"=70}
  , {"enabled"=true, "name"="mod_doc_type", "type"="data_processor", "priority"=2}
  , {"enabled"=true, "name"="mod_filter", "type"="data_processor", "priority"=3}
  , {"enabled"=false, "name"="mod_metadata", "type"="data_processor", "priority"=6, "llm_service"="gemini", "prompt_metadata"="Identify industry categories from this text. Return as String array in json format.\nTEXT:\n"}
@@ -193,8 +191,8 @@ plugins = [
  # save the model file and the config.json file to the folders specified here:
  , {"enabled"=false, "name"="mod_classify", "type"="data_processor", "priority"=5, "mod_eventclass_modelfile"="bert_models/pretrained_weights/pytorch_model.bin", "mod_eventclass_weightspath"="bert_models/pretrained_weights", "mod_eventclass_vocab_path"="bert_models/finbert_vocab" }
  , {"enabled"=false, "name"="mod_summarize", "type"="data_processor", "priority"=7, "llm_service"="gemini", "overwrite"=false, "max_word_count"=850}
- , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=9, "host_port"="https://127.0.0.1:3839", "username"="solr"}
- , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=11, "destination"="vectorindex", "file_format"="json"}
+ # , {"enabled"=false, "name"="mod_solrsubmit", "type"="data_processor", "priority"=9, "host_port"="https://127.0.0.1:3839", "username"="solr"}
+ , {"enabled"=true, "name"="mod_vectorstore", "type"="data_processor", "priority"=11, "vectorstore_path"="data/vectorstore", "vectorstore_script"="/home/netshare/hdd/llm_storage/src/rust_projs/newslookout_rs/scripts/vectorize_chunks.py", "vectorstore_min_chunk_words"=100, "vectorstore_max_chunk_words"=500, "vectorstore_window_size"=5, "vectorstore_similarity_threshold"="0.30"}
  , {"enabled"=true, "name"="mod_persist_data", "type"="data_processor", "priority"=13, "destination"="file", "file_format"="json"}
  # here, the custom command line plugin needs to run last in the data processing pipeline as it expects to retrieve the document from a file.
  , {"enabled"=false, "name"="mod_cmdline", "type"="data_processor", "priority"=99, "command_name"="dummy_upload2bucket.sh"}
@@ -202,7 +200,8 @@ plugins = [
 
 # Content extraction settings
 content_extraction_min_quality = 0.1
-rl_model_path = "models/DuelingDQN.onnx"
+#content_extraction_model_file = "models/DuelingDQN.safetensors"
+rl_model_path = "/home/netshare/hdd/downloader/models/DuelingDQN.onnx"
 
 save_intermediate=true
 model_temperature=0

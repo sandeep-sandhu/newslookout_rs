@@ -238,28 +238,32 @@ pub mod plugins {
     pub(crate) mod mod_en_in_rbi;
     pub(crate) mod mod_en_in_business_standard;
     pub mod mod_offline_docs;
-    pub mod mod_classify;
     pub mod split_text;
     pub mod mod_dedupe;
+    pub mod mod_mentions;
+    pub mod mod_extract_quant;
+    pub mod mod_themes;
+    pub mod mod_tone;
+    pub mod mod_geocode;
+    pub mod mod_ner;
+    pub mod mod_entity_graph;
+    pub mod mod_emit_graph;
+    pub mod mod_emit_tables;
     pub mod mod_vectorstore;
     pub mod mod_summarize;
     pub mod mod_solrsubmit;
     pub mod mod_persist_data;
     pub mod mod_cmdline;
     pub mod mod_en_in_thehindu;
-    pub mod mod_en_in_ndtv;
     pub mod mod_en_in_livemint;
     pub mod mod_en_in_moneycontrol;
     pub mod mod_en_in_timesofindia;
     pub mod mod_en_in_forbes;
-    pub mod mod_en_reuters;
     pub mod mod_en_bbc;
     pub mod mod_en_guardian;
-    pub mod mod_en_bloomberg;
     pub mod mod_en_ap_news;
     pub mod mod_en_in_indianexpress;
     pub mod mod_en_in_generic_retriever;
-    pub mod mod_en_yahoo_news;
     pub mod mod_en_in_hindustan_times;
     pub mod mod_en_in_news18;
     pub mod mod_en_aljazeera;
@@ -268,17 +272,12 @@ pub mod plugins {
     pub mod mod_en_gulf_news;
     pub mod mod_en_khaleej_times;
     pub mod mod_en_the_national;
-    pub mod mod_en_news24;
-    pub mod mod_en_guardian_ng;
     pub mod mod_en_punch_ng;
     pub mod mod_en_allafrica;
     pub mod mod_en_cnn;
     pub mod mod_en_foxnews;
-    pub mod mod_en_usatoday;
     pub mod mod_en_cnbc;
-    pub mod mod_en_marketwatch;
     pub mod mod_en_business_insider;
-    pub mod mod_en_washingtonpost;
     pub mod mod_en_latimes;
     pub mod mod_en_chicago_tribune;
     pub mod mod_en_fortune;
@@ -308,6 +307,10 @@ pub mod discovery;
 pub mod utils;
 pub mod llm;
 pub mod document;
+pub mod analysis;
+pub mod store;
+pub mod metrics;
+pub mod feeds;
 pub mod pipeline;
 pub mod cfg;
 pub mod content_extraction;
@@ -404,8 +407,6 @@ pub fn init_logging(config: Arc<config::Config>){
                 }
             }
 
-            println!("Logging to file: {}", logfile);
-
             // read parameter from config file : max_logfile_size
             let mut size_limit: i64 = 10 * 1024 * 1024; // 10 MB
             match config.get_int("max_logfile_size") {
@@ -473,7 +474,7 @@ pub fn init_logging(config: Arc<config::Config>){
                 Err(e) => { println!("ERROR: Could not initialize logging: {}", e); return; }
             }
             log::info!("Started application.");
-            println!("Logging initialized successfully.");
+            println!("Started logging to file: {}", logfile);
         }
         Err(e) => {
             println!("ERROR: Could not read 'log_file' from config: {}. No log file will be written.", e);
@@ -486,6 +487,12 @@ pub fn init_pid_file(config: Arc<config::Config>){
     match config.get_string("pid_file"){
         Ok(pidfile_name) =>{
             let pid_path = std::path::Path::new(&pidfile_name);
+            // Report the resolved absolute path of the PID file so the operator knows
+            // exactly which file is in use (config values are often relative).
+            let pid_abs = std::path::absolute(pid_path)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| pidfile_name.clone());
+            println!("Using PID file: {}", pid_abs);
             // Create parent directory if needed
             if let Some(parent) = pid_path.parent() {
                 if !parent.as_os_str().is_empty() && !parent.exists() {

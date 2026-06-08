@@ -145,6 +145,17 @@ pub fn get_database_filename(config: &Config) -> String {
     return "newslookout_urls.db".to_string();
 }
 
+/// Resolve the SQLite database path for tabular market data (NSE/BSE bhavcopy, RBI/CCIL
+/// series). Read from the `market_data_db` config key; falls back to the completed-urls
+/// datafile name with `_market.db` appended. Shared by the persistence plugin and the
+/// batch-feed subsystem so both write to the same file.
+pub fn get_market_data_db(config: &Config) -> String {
+    match config.get_string("market_data_db") {
+        Ok(p) if !p.is_empty() => p,
+        _ => format!("{}_market.db", get_database_filename(config)),
+    }
+}
+
 #[macro_export]
 macro_rules! get_cfg {
     ($config_key:expr, $config_obj:expr, $default_value:expr) => {

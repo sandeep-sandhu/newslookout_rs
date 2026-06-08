@@ -19,7 +19,7 @@ static SITE: SiteConfig = SiteConfig {
     starter_urls: &[("https://www.thenationalnews.com/business/", "business"),
     ("https://www.thenationalnews.com/world/", "world"),
     ("https://www.thenationalnews.com/uae/", "uae"),
-    ("https://www.thenationalnews.com/economy/", "economy")],
+    ("https://www.thenationalnews.com/business/economy/", "economy")],
     valid_url_patterns: &["thenationalnews.com/business/",
     "thenationalnews.com/world/",
     "thenationalnews.com/uae/",

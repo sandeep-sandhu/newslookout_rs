@@ -18,7 +18,7 @@ static SITE: SiteConfig = SiteConfig {
     min_content_length: 400,
     starter_urls: &[("https://www.arabnews.com/", "main"),
     ("https://www.arabnews.com/economy", "economy"),
-    ("https://www.arabnews.com/middle-east", "middle-east"),
+    ("https://www.arabnews.com/middleeast", "middle-east"),
     ("https://www.arabnews.com/world", "world")],
     valid_url_patterns: &["arabnews.com/node/"],
     skip_url_patterns: &["/videos/", "/photos/", "/gallery/",

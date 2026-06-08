@@ -5,6 +5,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, Map, Number};
 
+use crate::analysis::DocAnalysis;
+
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Document {
     /// Module name
@@ -59,6 +61,11 @@ pub struct Document {
     /// required for this document. It will be used by each data processing plugin to identify
     /// whether to process this document or not.
     pub data_proc_flags: usize,
+    /// Structured-analysis sidecar populated by the extraction data_processor plugins
+    /// (NER, geocode, tone, themes, amounts, events, ...). `None` until an extractor runs.
+    /// Kept out of the core acquisition fields to keep this struct lean; emitted additively.
+    #[serde(default)]
+    pub analysis: Option<DocAnalysis>,
 }
 
 /// Creates a new empty document object with default attributes
@@ -90,6 +97,7 @@ impl Default for Document {
             filename: "".to_string(),
             generated_content: HashMap::new(),
             data_proc_flags: 0,
+            analysis: None,
         }
     }
 }
@@ -133,6 +141,8 @@ impl Document {
             "generated_content": self.generated_content,
             "text_parts": text_parts_json,
             "data_proc_flags": self.data_proc_flags,
+            // structured-analysis sidecar (omitted as null when no extractor has run)
+            "analysis": self.analysis,
         })
     }
 }

@@ -577,14 +577,23 @@ pub fn extract_text_from_pdf(pdf_file_path: PathBuf, txt_file_path: PathBuf) -> 
 
 pub fn retrieve_pdf_content(pdf_url: &str, client: &reqwest::blocking::Client, plugin_name: &str, source_url: &str) -> (bytes::Bytes, String) {
     let pdf_data = network::http_get_binary(&pdf_url.to_string(), client);
-    match extract_text_from_mem(pdf_data.as_bytes()) {
-        Result::Ok(plaintext) => {
-            return (pdf_data, plaintext);
-        },
-        Err(outerr) => {
+    // pdf_extract can panic internally (e.g. unwrap() on Parse(InvalidContentStream))
+    // for malformed PDFs, so wrap the call to avoid bringing down the worker thread:
+    let bytes_for_extraction = pdf_data.clone();
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        extract_text_from_mem(bytes_for_extraction.as_bytes())
+    }));
+    match result {
+        Ok(Result::Ok(plaintext)) => (pdf_data, plaintext),
+        Ok(Err(outerr)) => {
             error!("[{}] When converting PDF into text, url='{}', source='{}': {}",
                 plugin_name, pdf_url, source_url, outerr);
-            return (pdf_data, String::new());
+            (pdf_data, String::new())
+        },
+        Err(panic_err) => {
+            error!("[{}] PDF extraction panicked for url='{}', source='{}': {:?}",
+                plugin_name, pdf_url, source_url, panic_err);
+            (pdf_data, String::new())
         }
     }
 }

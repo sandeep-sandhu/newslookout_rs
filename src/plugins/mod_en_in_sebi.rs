@@ -13,6 +13,7 @@ use reqwest::blocking::Client;
 use scraper::ElementRef;
 use crate::{document, get_plugin_cfg};
 use crate::cfg::{get_data_folder, get_database_filename, get_pdf_data_folder};
+use crate::content_extraction::extract_text_from_html;
 use crate::document::Document;
 use crate::network::{NetworkParameters, http_get, make_http_client, read_network_parameters};
 use crate::utils::{check_and_fix_url, get_urls_from_database, load_pdf_content, make_unique_filename, to_local_datetime};
@@ -83,7 +84,7 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
         for pageno in 1..(max_pages + 1) {
 
             // retrieve content from this url and extract vector of documents, mainly individual urls to retrieve.
-            let content = get_sebi_urllist(&client, sid.to_string(), ssid.to_string(), smid.to_string(), section_name, pageno.to_string());
+            let content = get_sebi_urllist(&client, sid.to_string(), ssid.to_string(), smid.to_string(), section_name, pageno);
             let url_listing_page = format!("https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid={}&ssid={}&smid={}", sid, ssid, smid);
 
             let count_of_docs = sebi_retrieve_docs(
@@ -104,21 +105,64 @@ pub(crate) fn run_worker_thread(tx: Sender<document::Document>, app_config: Arc<
     info!("{}: Completed retrieving {} documents.", PLUGIN_NAME, counter);
 }
 
+/// Minimal application/x-www-form-urlencoded value encoder (RFC 3986 unreserved set kept
+/// literal; everything else percent-encoded). Avoids a dependency on `RequestBuilder::form`.
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b' ' => out.push_str("%20"),
+            other => out.push_str(&format!("%{:02X}", other)),
+        }
+    }
+    out
+}
+
+/// Build the form-encoded request body from key/value pairs.
+fn encode_form(params: &[(&str, &str)]) -> String {
+    params
+        .iter()
+        .map(|(k, v)| format!("{}={}", urlencode(k), urlencode(v)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// Compute the (next, nextValue, doDirect) listing parameters for a page number.
+///
+/// The live site loads the FIRST page with the "search" direction and doDirect=-1 (mirrors
+/// `searchFormNewsList('s','-1')`); using next='n'/doDirect=1 returns ZERO rows for shorter
+/// sections (Acts, Guidelines, General Orders), which is why those were never retrieved.
+/// Subsequent pages use next='n' with the (1-based) page index minus one. (Verified live
+/// 2026-06-13.)
+fn page_nav_params(page_no: u64) -> (String, String, String) {
+    if page_no <= 1 {
+        ("s".to_string(), "-1".to_string(), "-1".to_string())
+    } else {
+        let p = (page_no - 1).to_string();
+        ("n".to_string(), p.clone(), p)
+    }
+}
+
 fn get_sebi_urllist(
     client: &Client,
     sid: String,
     ssid: String,
     smid: String,
     sub_section_name: &str,
-    page_no: String
+    page_no: u64,
 ) -> String {
 
     let listing_url = "https://www.sebi.gov.in/sebiweb/ajax/home/getnewslistinfo.jsp";
 
-    // Make payload
+    let (next, next_value, do_direct) = page_nav_params(page_no);
+
+    // Form-encoded payload. NOTE: this MUST be sent as application/x-www-form-urlencoded
+    // (.form), NOT JSON — SEBI's WAF returns HTTP 530 "Unauthorized Request Blocked" for a
+    // JSON body. The X-Requested-With header marks it as an XHR as the site does.
     let params = [
-        ("nextValue","1"),
-        ("next", "n"),
+        ("nextValue", next_value.as_str()),
+        ("next", next.as_str()),
         ("search", ""),
         ("fromDate", ""),
         ("toDate", ""),
@@ -133,22 +177,31 @@ fn get_sebi_urllist(
         ("sText", "Legal"),
         ("ssText", sub_section_name),
         ("smText", ""),
-        ("doDirect", page_no.as_str()),
+        ("doDirect", do_direct.as_str()),
     ];
+
+    let body = encode_form(&params);
 
     // get response
     match client
         .post(listing_url)
-        .json(&params)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(body)
         .send()
     {
         Ok(resp) => {
+            let status = resp.status();
+            crate::metrics::record_http_status(status.as_u16());
             match resp.text() {
                 Ok(resptext) => return resptext,
-                Err(_) => {}
+                Err(e) => error!("{}: When reading listing response body: {}", PLUGIN_NAME, e),
             }
         }
-        Err(e) => error!("{}: When getting list of urls: {}", PLUGIN_NAME, e)
+        Err(e) => {
+            crate::metrics::record_http_transport_error();
+            error!("{}: When getting list of urls: {}", PLUGIN_NAME, e)
+        }
     }
 
     String::new()
@@ -167,7 +220,11 @@ pub fn sebi_retrieve_docs(
 {
     let mut counter: usize = 0;
 
-    let rows_selector = scraper::Selector::parse("table.dataTable>tbody>tr").unwrap();
+    // Descendant (not direct-child) selector: robust whether or not a <tbody> is present in
+    // the source (the AJAX fragment omits it; html5ever inserts one on parse). The header
+    // row lives in <thead> so it is excluded; any stray header row yields no <a> and is
+    // skipped downstream.
+    let rows_selector = scraper::Selector::parse("table.dataTable tbody tr").unwrap();
     info!("{}: Retrieving url listing from: {}", PLUGIN_NAME, url_listing_page);
     let html_document = scraper::Html::parse_document(&content.as_str());
 
@@ -321,4 +378,80 @@ fn extract_content_from_sebi_page(new_doc: &mut Document, client: &Client, netw_
         }
     }
 
+    // Capture the inline HTML body so HTML-only documents (e.g. some guidelines/circulars
+    // that render text rather than only embedding a PDF) persist as JSON articles with text.
+    // The PDF (when present) is still downloaded later by load_pdf_content, which overwrites
+    // `text` when it yields more content.
+    for sel_str in &["div.content-box", "div.m_section", "div#main-content", "div.news-detail-slider"] {
+        if let Ok(sel) = scraper::Selector::parse(sel_str) {
+            if let Some(div) = html_document.select(&sel).next() {
+                let inner = div.inner_html();
+                if inner.len() > 200 {
+                    new_doc.html_content = inner.clone();
+                    new_doc.text = extract_text_from_html(&inner);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scraper::{Html, Selector};
+
+    // First page must use the search direction (doDirect=-1); this is the fix that makes
+    // short sections (Acts/Guidelines/General Orders) return rows.
+    #[test]
+    fn test_page_nav_params_first_page() {
+        assert_eq!(page_nav_params(1), ("s".to_string(), "-1".to_string(), "-1".to_string()));
+        assert_eq!(page_nav_params(0), ("s".to_string(), "-1".to_string(), "-1".to_string()));
+    }
+
+    #[test]
+    fn test_page_nav_params_subsequent_pages() {
+        assert_eq!(page_nav_params(2), ("n".to_string(), "1".to_string(), "1".to_string()));
+        assert_eq!(page_nav_params(3), ("n".to_string(), "2".to_string(), "2".to_string()));
+    }
+
+    #[test]
+    fn test_urlencode_and_form() {
+        assert_eq!(urlencode("Settlement Orders"), "Settlement%20Orders");
+        assert_eq!(urlencode("-1"), "-1");
+        assert_eq!(urlencode("a&b=c"), "a%26b%3Dc");
+        let body = encode_form(&[("ssText", "Settlement Orders"), ("doDirect", "-1")]);
+        assert_eq!(body, "ssText=Settlement%20Orders&doDirect=-1");
+    }
+
+    // The tbody-robust selector must match data rows and exclude the <thead> header row,
+    // against the real SEBI dataTable structure (captured live 2026-06-13).
+    #[test]
+    fn test_datatable_row_selection_and_extraction() {
+        let fragment = r#"
+        <table class='table table-striped bordered fix_table dataTable no-footer' id='sample_1'>
+          <thead><tr role='row'><th>Date</th><th>Title</th></tr></thead>
+          <tr role='row' class='odd'>
+            <td>Mar 06, 2026</td>
+            <td><a href='https://www.sebi.gov.in/legal/guidelines/mar-2026/anti-money-laundering-aml-guidelines_100200.html' target="_blank" title="AML Guidelines" class='points'>Anti Money Laundering (AML) Guidelines</a></td>
+          </tr>
+          <tr role='row' class='even'>
+            <td>Mar 04, 2026</td>
+            <td><a href='https://www.sebi.gov.in/legal/circulars/mar-2026/regulatory-reporting-by-aifs_100120.html' class='points'>Regulatory Reporting by AIFs</a></td>
+          </tr>
+        </table>"#;
+
+        let doc = Html::parse_document(fragment);
+        let rows_sel = Selector::parse("table.dataTable tbody tr").unwrap();
+        let rows: Vec<_> = doc.select(&rows_sel).collect();
+        assert_eq!(rows.len(), 2, "should select 2 data rows, excluding the thead header");
+
+        let first = extract_sebi_doc_from_row(rows[0], "https://listing");
+        assert_eq!(first.title, "Anti Money Laundering (AML) Guidelines");
+        assert_eq!(
+            first.url,
+            "https://www.sebi.gov.in/legal/guidelines/mar-2026/anti-money-laundering-aml-guidelines_100200.html"
+        );
+        assert_eq!(first.publish_date, "2026-03-06");
+    }
 }

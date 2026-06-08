@@ -53,15 +53,15 @@ Each article is saved as a JSON file with the following structure:
 
 ```json
 {
-  "sourceName":  ["Reuters"],
+  "sourceName":  ["BBC News"],
   "pubdate":     "2024-03-15",
   "text":        "Full article body text...",
   "title":       "Article headline",
-  "URL":         "https://www.reuters.com/business/...",
+  "URL":         "https://www.bbc.com/news/business-...",
   "keywords":    ["economy", "gdp", "growth"],
   "industries":  [],
   "uniqueID":    "12345678",
-  "module":      "mod_en_reuters"
+  "module":      "mod_en_bbc"
 }
 ```
 
@@ -69,7 +69,7 @@ Field descriptions:
 
 | Field        | Type            | Description                                          |
 |--------------|-----------------|------------------------------------------------------|
-| `sourceName` | `[String]`      | Publisher name(s), e.g. `["Reuters"]`               |
+| `sourceName` | `[String]`      | Publisher name(s), e.g. `["BBC News"]`               |
 | `pubdate`    | `String`        | Publication date in `YYYY-MM-DD` format             |
 | `text`       | `String`        | Plain-text article body                             |
 | `title`      | `String`        | Article headline                                    |
@@ -104,7 +104,6 @@ Article body text is extracted using a two-stage fallback strategy implemented i
 | `mod_en_in_rbi`              | Reserve Bank of India                    | Notifications           |
 | `mod_en_in_business_std`     | Business Standard                        | Main page               |
 | `mod_en_in_thehindu`         | The Hindu                                | Business, Economy       |
-| `mod_en_in_ndtv`             | NDTV                                     | Business, India         |
 | `mod_en_in_livemint`         | Livemint                                 | Latest, Economy         |
 | `mod_en_in_moneycontrol`     | Moneycontrol                             | News, Business          |
 | `mod_en_in_timesofindia`     | Times of India                           | Business, India         |
@@ -116,10 +115,8 @@ Article body text is extracted using a two-stage fallback strategy implemented i
 
 | Plugin name           | Website            | Sections scraped          |
 |-----------------------|--------------------|---------------------------|
-| `mod_en_reuters`      | Reuters            | Business, World           |
 | `mod_en_bbc`          | BBC News           | Main, Business            |
 | `mod_en_guardian`     | The Guardian       | World, Business           |
-| `mod_en_bloomberg`    | Bloomberg          | Markets, Technology       |
 | `mod_en_ap_news`      | Associated Press   | Business, World news      |
 
 ### Offline / generic
@@ -201,6 +198,13 @@ retry_count           = 3
 retry_wait_fixed_sec  = 3
 user_agent            = "Mozilla/5.0 ..."
 
+# Crawl politeness / robots.txt
+respect_robots_txt    = true    # honor each site's robots.txt before fetching article URLs;
+                                # set to false to disable robots.txt checks across all sites
+min_host_interval_sec = 3       # minimum seconds between consecutive fetches to the same host
+                                # (shared per-host throttle across all retriever threads);
+                                # falls back to wait_time_min if not set
+
 # Content extraction
 content_extraction_min_quality   = 0.1    # 0.0–1.0; lower = accept noisier extractions
 content_extraction_model_file    = "models/dqn_model.safetensors"  # reserved for future RL model
@@ -215,7 +219,7 @@ Each plugin entry in the `plugins` array has:
 
 ```toml
 plugins = [
-  { enabled=true,  name="mod_en_reuters",    type="retriever",      priority=2 },
+  { enabled=true,  name="mod_en_bbc",        type="retriever",      priority=2 },
   { enabled=true,  name="mod_en_in_thehindu",type="retriever",      priority=3 },
   { enabled=true,  name="split_text",        type="data_processor", priority=1,
     overwrite=false, min_word_limit_to_split=700, previous_part_overlap=70 },
@@ -252,7 +256,7 @@ export OPENAI_API_KEY="..."
 
 ### Retriever plugin
 
-1. Create `src/plugins/mod_my_site.rs` using an existing plugin as a template (e.g. `mod_en_reuters.rs`).
+1. Create `src/plugins/mod_my_site.rs` using an existing plugin as a template (e.g. `mod_en_bbc.rs`).
 2. Implement `pub fn run_worker_thread(tx: Sender<Document>, app_config: Arc<Config>)`.
 3. Declare it in `src/lib.rs`:
    ```rust
@@ -380,17 +384,14 @@ newslookout_rs/
 │       ├── mod_en_in_rbi.rs
 │       ├── mod_en_in_business_standard.rs
 │       ├── mod_en_in_thehindu.rs
-│       ├── mod_en_in_ndtv.rs
 │       ├── mod_en_in_livemint.rs
 │       ├── mod_en_in_moneycontrol.rs
 │       ├── mod_en_in_timesofindia.rs
 │       ├── mod_en_in_forbes.rs
 │       ├── mod_en_in_indianexpress.rs
 │       ├── mod_en_in_indiankanoon.rs
-│       ├── mod_en_reuters.rs
 │       ├── mod_en_bbc.rs
 │       ├── mod_en_guardian.rs
-│       ├── mod_en_bloomberg.rs
 │       ├── mod_en_ap_news.rs
 │       ├── mod_en_in_generic_retriever.rs
 │       ├── mod_offline_docs.rs

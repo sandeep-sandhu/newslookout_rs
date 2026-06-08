@@ -515,6 +515,7 @@ mod tests {
             wait_time_min: 0, wait_time_max: 0,
             fetch_timeout: 10, connect_timeout: 10,
             proxy_server: None, referrer_url: None,
+            respect_robots_txt: true, min_host_interval_sec: None,
         };
         let client = reqwest::blocking::Client::new();
         let n = get_docs_from_listing_page(
@@ -548,6 +549,7 @@ mod tests {
             wait_time_min: 0, wait_time_max: 0,
             fetch_timeout: 10, connect_timeout: 10,
             proxy_server: None, referrer_url: None,
+            respect_robots_txt: true, min_host_interval_sec: None,
         };
         let client = reqwest::blocking::Client::new();
         let n = get_docs_from_listing_page(

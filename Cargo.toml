@@ -1,6 +1,6 @@
 [package]
 name = "newslookout"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 authors = ["Sandeep Singh Sandhu"]
 description = "A web scraping platform built for news scanning, using LLMs for text processing, powered by Rust"
@@ -26,19 +26,19 @@ path = "src/bin.rs"
 log4rs = { version = "1.4.0", features = ["gzip"]}
 rand = "0.10"
 regex = "1.12.3"
-scraper = "0.26.0"
-log = "0.4.29"
+scraper = "0.27"
+log = "0.4"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0"
 reqwest = { version = "0.13.3", features = ["json", "blocking", "http2", "cookies", "gzip"] }
 # set "http3" feature in future releases of reqwest when it becomes stable. removed: nom_parser, pom, pom_parser
-lopdf = { version = "0.40.0"}
+lopdf = { version = "0.41"}
 pdf-extract = "0.10.0"
 config = "0.15.23"
-chrono = "0.4.44"
+chrono = "0.4"
 bytes = "1.11.1"
 nom = "8.0.0"
-rusqlite = { version = "0.40.0", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 ort = { version = "2.0.0-rc.12" }
 zip = "2"
 postgres = "0.19.13"
@@ -46,8 +46,8 @@ rusty-tesseract = "1.1.10"
 #sqlx = { version = "0.8.6", features = [ "runtime-tokio-rustls", "postgres", "macros", "runtime-tokio-native-tls", "sqlite" ] }
 postgres-native-tls = "0.5.3"
 clap = { version = "4.6.1", features = ["derive"] }
-samvadsetu = "0.1.2"
-# !!! DISABLED temporarily - RE-ENABLE IN PRODUCTION !!!
+samvadsetu = "1.0"
+# !!! CUDA feature DISABLED temporarily - RE-ENABLE IN PRODUCTION !!!
 content-extractor-rl = { version = "1.0", features = [] }
 #anyhow = "1.0.93"
 #tch = { version = "0.17.0", features = ["download-libtorch"] }

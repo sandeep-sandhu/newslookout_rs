@@ -17,7 +17,6 @@ static SITE: SiteConfig = SiteConfig {
     base_url: "https://allafrica.com/",
     min_content_length: 400,
     starter_urls: &[("https://allafrica.com/business/", "business"),
-    ("https://allafrica.com/economy/", "economy"),
     ("https://allafrica.com/governance/", "governance")],
     valid_url_patterns: &["allafrica.com/stories/"],
     skip_url_patterns: &["/photos/", "/videos/", "/sport/", "/entertainment/",

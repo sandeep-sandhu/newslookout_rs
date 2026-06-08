@@ -17,7 +17,7 @@ static SITE: SiteConfig = SiteConfig {
     base_url: "https://www.thehindu.com/",
     min_content_length: 400,
     starter_urls: &[("https://www.thehindu.com/business/", "business"),
-    ("https://www.thehindu.com/economy/", "economy")],
+    ("https://www.thehindu.com/business/Economy/", "economy")],
     valid_url_patterns: &["www.thehindu.com/"],
     skip_url_patterns: &["/about", "/contact", "/subscribe", "/login", "/video/",
     "/photo/", "/podcast/", "/newsletter", "/tag/", "/topic/",

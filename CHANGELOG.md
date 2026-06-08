@@ -1,5 +1,32 @@
 # Change Log
 
+### Release 1.0.1
+
+Updates and bug fixes:
+
+1. **Fixed compilation errors from `samvadsetu` v1.0.0 API change** (src/plugins/mod_summarize.rs): `LLMTextGenerator` dropped its `user_prompt` field and `generate_text(prefix, suffix)` was replaced by `generate_text(messages: &[ChatMessage], tools, response_format)`. Updated `generate_text_using_llm` to build a `[ChatMessage::system(user_prompt), ChatMessage::user(prefix + suffix)]` slice and call the new signature — summarisation behaviour is unchanged.
+
+2. **Fixed broken listing-page URLs for several international retriever plugins** — sites had restructured their section paths, returning HTTP 404 (verified with `curl`):
+    - `mod_en_in_thehindu`: `/economy/` → `/business/Economy/`
+    - `mod_en_arab_news`: `/middle-east` → `/middleeast`
+    - `mod_en_the_national`: `/economy/` → `/business/economy/`
+    - `mod_en_allafrica`: removed the `/economy/` starter URL — the section was merged into `/business/` (site now redirects there)
+    - `mod_en_nhk_world`: removed the `/news/business/` starter URL — the section no longer exists on NHK World's restructured (JS-rendered) site; only the top-level `/news/` listing remains valid
+
+3. **Removed retriever plugins permanently blocked by anti-bot protections** (src/lib.rs, src/pipeline.rs, conf/newslookout.toml, and source files deleted): `mod_en_marketwatch`, `mod_en_in_ndtv`, `mod_en_reuters`, `mod_en_news24`, `mod_en_bloomberg`, `mod_en_usatoday`, `mod_en_guardian_ng`, `mod_en_yahoo_news`, `mod_en_washingtonpost`. Each of these returned HTTP 401/403 or connection resets on every listing-page fetch — verified with `curl` using a browser user-agent — confirming the failures are anti-bot blocks at the website's edge, not URL/path changes that can be fixed in the plugin. Removing them eliminates persistent error-log noise for sites that cannot be scraped. Updated README plugin tables and the JSON example (now uses `mod_en_bbc`/BBC News) accordingly.
+
+4. **Configurable robots.txt / crawl-politeness settings** (src/network.rs, src/plugins/html_news.rs, conf/newslookout.toml):
+    - New global config keys:
+        - `respect_robots_txt` (bool, default `true`) — globally toggles whether retriever plugins consult each site's `robots.txt` before fetching article URLs. Per-site `SiteConfig::respect_robots` settings are ANDed with this global flag, so turning it off overrides all sites at once while leaving the per-site flags intact for future use.
+        - `min_host_interval_sec` (integer, optional) — minimum number of seconds to wait between consecutive fetches to the same host (per-host politeness throttle shared across all retriever threads). Falls back to `wait_time_min` if not set.
+    - `NetworkParameters` gained `respect_robots_txt: bool` and `min_host_interval_sec: Option<usize>` fields, populated by `read_network_parameters`.
+    - `html_news::run` now derives the per-host crawl interval from `min_host_interval_sec` (falling back to `wait_time_min`), and `allowed_by_robots` takes the global `respect_robots_txt` flag so operators can disable robots.txt checks without editing every plugin.
+
+5. **Fixed compilation error from `content-extractor-rl` v1.0.0 API change** (src/content_extraction.rs): `ArticleExtractionEnvironment::reset` gained a new `ground_truth_text: Option<&str>` parameter (3rd positional argument, between `url` and `_site_profile`). Updated the call site to pass `None::<&str>` since no ground-truth text is available at inference time — extraction behaviour is unchanged.
+
+6. **MoneyControl extraction fix** (src/plugins/mod_en_in_moneycontrol.rs): added `div#div_app_container` to `body_selectors` as a CSS fallback. MoneyControl "earnings" stub articles embed their text in `<div id="div_app_container">`, but their JSON-LD `articleBody` contains literal unescaped `\r\n` control characters that fail JSON parsing — the new selector lets the existing CSS-fallback path extract the content directly.
+
+
 ### Release 1.0.0
 
 Summary of Updates and bug fixes:
